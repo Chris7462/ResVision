@@ -382,10 +382,10 @@ def main():
     print("=" * 80)
     print(f"\nNext steps:")
     print(f"  1. Extract features: python common/tools/extract_features.py \\")
-    print(f"       --task segmentation --dataset cityscapes \\")
-    print(f"       --data-root {args.data_root} \\")
-    print(f"       --output-dir ./features/cityscapes_resnet101")
+    print(f"       --task segmentation \\")
+    print(f"       --data-root {args.data_root}")
     print(f"\n  Note: Images will be resized to 1024x512 during feature extraction")
+    print(f"  Features will be saved to: ./features/segmentation/")
 
 
 if __name__ == '__main__':

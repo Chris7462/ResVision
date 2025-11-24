@@ -82,30 +82,30 @@ Example usage:
   # Segmentation (Cityscapes)
   python extract_features.py \\
     --task segmentation \\
-    --dataset cityscapes \\
     --data-root ./data/Cityscapes \\
-    --output-dir ./features/cityscapes_resnet101 \\
     --batch-size 8
 
   # Object Detection (COCO)
   python extract_features.py \\
     --task detection \\
-    --dataset coco \\
     --data-root ./data/COCO \\
-    --output-dir ./features/coco_resnet101 \\
     --batch-size 8
+
+  # Custom output directory
+  python extract_features.py \\
+    --task segmentation \\
+    --data-root ./data/Cityscapes \\
+    --output-dir ./features/my_custom_features
         """
     )
 
     parser.add_argument('--task', type=str, required=True,
                         choices=['segmentation', 'detection', 'lane_detection'],
-                        help='Task type')
-    parser.add_argument('--dataset', type=str, required=True,
-                        help='Dataset name (e.g., cityscapes, coco, tusimple)')
+                        help='Task type (determines which dataset to use)')
     parser.add_argument('--data-root', type=str, required=True,
                         help='Root directory of the dataset')
-    parser.add_argument('--output-dir', type=str, required=True,
-                        help='Directory to save extracted features')
+    parser.add_argument('--output-dir', type=str, default=None,
+                        help='Directory to save extracted features (default: ./features/{task})')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size for feature extraction (default: 8)')
     parser.add_argument('--num-workers', type=int, default=4,
@@ -119,6 +119,10 @@ Example usage:
 
     args = parser.parse_args()
 
+    # Auto-generate output directory based on task if not specified
+    if args.output_dir is None:
+        args.output_dir = f'./features/{args.task}'
+
     # Check device availability
     if args.device == 'cuda' and not torch.cuda.is_available():
         print("Warning: CUDA not available, using CPU")
@@ -128,38 +132,24 @@ Example usage:
     print("ResVision Feature Extraction")
     print("="*80)
     print(f"Task: {args.task}")
-    print(f"Dataset: {args.dataset}")
     print(f"Data root: {args.data_root}")
     print(f"Output directory: {args.output_dir}")
     print(f"Batch size: {args.batch_size}")
     print(f"Splits: {args.splits}")
     print(f"Device: {args.device}")
 
-    # Import task-specific dataloader creator
-    # This allows the script to work with any task
+    # Import task-specific dataloader creator based on task
     if args.task == 'segmentation':
-        if args.dataset == 'cityscapes':
-            from segmentation.datasets import create_cityscapes_dataloaders
-            dataloader_fn = create_cityscapes_dataloaders
-        else:
-            raise ValueError(f"Unknown segmentation dataset: {args.dataset}")
+        from segmentation.datasets import create_cityscapes_dataloaders
+        dataloader_fn = create_cityscapes_dataloaders
 
     elif args.task == 'detection':
-        if args.dataset == 'coco':
-            from object_detection.datasets.create_coco_dataloaders import create_coco_dataloaders
-            dataloader_fn = create_coco_dataloaders
-        else:
-            raise ValueError(f"Unknown detection dataset: {args.dataset}")
+        from object_detection.datasets import create_coco_dataloaders
+        dataloader_fn = create_coco_dataloaders
 
     elif args.task == 'lane_detection':
-        if args.dataset == 'tusimple':
-            from lane_detection.datasets.create_tusimple_dataloaders import create_tusimple_dataloaders
-            dataloader_fn = create_tusimple_dataloaders
-        elif args.dataset == 'culane':
-            from lane_detection.datasets.create_culane_dataloaders import create_culane_dataloaders
-            dataloader_fn = create_culane_dataloaders
-        else:
-            raise ValueError(f"Unknown lane detection dataset: {args.dataset}")
+        from lane_detection.datasets import create_tusimple_dataloaders
+        dataloader_fn = create_tusimple_dataloaders
 
     else:
         raise ValueError(f"Unknown task: {args.task}")

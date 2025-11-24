@@ -113,14 +113,15 @@ Extract ResNet101 features from all images and cache to disk:
 ```bash
 python common/tools/extract_features.py \
   --task segmentation \
-  --dataset cityscapes \
   --data-root ./data/Cityscapes \
-  --output-dir ./features/cityscapes_resnet101 \
   --batch-size 8 \
   --num-workers 4 \
-  --device cuda \
-  --splits train val test
+  --device cuda
 ```
+
+**Optional arguments:**
+- `--output-dir` - Custom output directory (default: `./features/segmentation`)
+- `--splits` - Which splits to extract (default: `train val test`)
 
 **What this does:**
 - Loads pretrained ResNet101 (frozen)
@@ -142,7 +143,7 @@ Each `.pt` file contains:
 
 **Output:**
 ```
-features/cityscapes_resnet101/
+features/segmentation/
 ├── train_00000.pt
 ├── train_00001.pt
 ├── ...
@@ -156,7 +157,7 @@ features/cityscapes_resnet101/
 
 ```bash
 python segmentation/train_fcn_features.py \
-  --feature-dir ./features/cityscapes_resnet101 \
+  --feature-dir ./features/segmentation \
   --dataset-info ./data/Cityscapes/splits/dataset_info.json \
   --batch-size 32 \
   --epochs 100 \
@@ -168,7 +169,7 @@ python segmentation/train_fcn_features.py \
 ```bash
 python segmentation/test_fcn.py \
   --checkpoint ./checkpoints/segmentation/best_model.pth \
-  --feature-dir ./features/cityscapes_resnet101 \
+  --feature-dir ./features/segmentation \
   --output-dir ./outputs/segmentation/
 ```
 
