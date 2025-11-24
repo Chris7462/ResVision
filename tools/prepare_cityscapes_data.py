@@ -381,7 +381,7 @@ def main():
     print("Preparation complete!")
     print("=" * 80)
     print(f"\nNext steps:")
-    print(f"  1. Extract features: python common/backbone/extract_features.py \\")
+    print(f"  1. Extract features: python common/tools/extract_features.py \\")
     print(f"       --task segmentation --dataset cityscapes \\")
     print(f"       --data-root {args.data_root} \\")
     print(f"       --output-dir ./features/cityscapes_resnet101")

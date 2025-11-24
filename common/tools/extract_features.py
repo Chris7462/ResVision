@@ -139,7 +139,7 @@ Example usage:
     # This allows the script to work with any task
     if args.task == 'segmentation':
         if args.dataset == 'cityscapes':
-            from segmentation.datasets.create_cityscapes_dataloaders import create_cityscapes_dataloaders
+            from segmentation.datasets import create_cityscapes_dataloaders
             dataloader_fn = create_cityscapes_dataloaders
         else:
             raise ValueError(f"Unknown segmentation dataset: {args.dataset}")
@@ -165,7 +165,7 @@ Example usage:
         raise ValueError(f"Unknown task: {args.task}")
 
     # Create ResNet101 backbone (frozen, pretrained)
-    from common.backbone.resnet import create_resnet101_backbone
+    from common.backbone import create_resnet101_backbone
 
     print("\nCreating ResNet101 backbone...")
     backbone = create_resnet101_backbone(pretrained=True, freeze=True)

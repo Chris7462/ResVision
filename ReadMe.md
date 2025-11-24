@@ -21,12 +21,13 @@ ResVision/
 ├── common/
 │   ├── backbone/                 # Shared ResNet101 backbone
 │   │   ├── resnet.py             # ResNet101 implementation
-│   │   ├── extract_features.py   # Feature extraction script
 │   │   └── __init__.py
-│   └── datasets/                 # Shared dataset utilities
-│       ├── feature_dataset.py    # Dataset for cached features
-│       ├── create_feature_dataloaders.py   # Feature dataloader creation
-│       └── __init__.py
+│   ├── datasets/                 # Shared dataset utilities
+│   │   ├── feature_dataset.py    # Dataset for cached features
+│   │   ├── create_feature_dataloaders.py   # Feature dataloader creation
+│   │   └── __init__.py
+│   └── tools/                 # Common utility scripts
+│       └── extract_features.py   # Feature extraction script
 ├── segmentation/                 # Semantic segmentation (FCN on Cityscapes)
 │   ├── datasets/
 │   │   ├── cityscapes_dataset.py
@@ -79,9 +80,10 @@ data/Cityscapes/
 Run the preparation script to create splits and compute statistics:
 
 ```bash
-python tools/prepare_cityscapes_data.py --data-root ./data/Cityscapes
-  # --train-ratio 0.9   # default
-  # --seed 42           # default
+python tools/prepare_cityscapes_data.py \
+  --data-root ./data/Cityscapes \
+  --train-ratio 0.9 \
+  --seed 42
 ```
 
 **What this does:**
@@ -109,7 +111,7 @@ Processing 2,975 images...
 Extract ResNet101 features from all images and cache to disk:
 
 ```bash
-python common/backbone/extract_features.py \
+python common/tools/extract_features.py \
   --task segmentation \
   --dataset cityscapes \
   --data-root ./data/Cityscapes \
