@@ -21,8 +21,21 @@ class FeatureDataset(Dataset):
     Each task selects which feature levels it needs during training.
     The 'target' field is task-specific (masks/boxes/lanes).
 
+    Expected directory structure:
+        feature_dir/
+            train/
+                00000.pt
+                00001.pt
+                ...
+            val/
+                00000.pt
+                ...
+            test/
+                00000.pt
+                ...
+
     Args:
-        feature_dir: Directory containing cached .pt files
+        feature_dir: Base directory containing split subdirectories
         split: 'train', 'val', or 'test'
     """
 
@@ -30,17 +43,31 @@ class FeatureDataset(Dataset):
         self.feature_dir = feature_dir
         self.split = split
 
+        # Path to this split's subdirectory
+        split_dir = os.path.join(feature_dir, split)
+
+        if not os.path.exists(split_dir):
+            raise ValueError(
+                f"Split directory does not exist: {split_dir}\n"
+                f"Expected structure: {feature_dir}/{split}/*.pt"
+            )
+
         # Find all feature files for this split
         self.feature_files = sorted([
-            f for f in os.listdir(feature_dir)
-            if f.startswith(f"{split}_") and f.endswith('.pt')
+            f for f in os.listdir(split_dir)
+            if f.endswith('.pt')
         ])
 
         if len(self.feature_files) == 0:
             raise ValueError(
-                f"No feature files found for split '{split}' in {feature_dir}\n"
-                f"Expected files matching pattern: {split}_*.pt"
+                f"No feature files found in {split_dir}\n"
+                f"Expected files matching pattern: *.pt"
             )
+
+        # Store full paths for faster loading
+        self.feature_paths = [
+            os.path.join(split_dir, f) for f in self.feature_files
+        ]
 
         print(f"  Loaded {len(self.feature_files)} cached features for '{split}' split")
 
@@ -59,7 +86,7 @@ class FeatureDataset(Dataset):
                 'x4': (2048, H/32, W/32) - ResNet layer4 output
                 'target': Task-specific target (mask/boxes/lanes)
         """
-        feature_path = os.path.join(self.feature_dir, self.feature_files[idx])
+        feature_path = self.feature_paths[idx]
         data = torch.load(feature_path, weights_only=False)
         return data
 

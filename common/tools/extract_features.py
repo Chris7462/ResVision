@@ -18,18 +18,19 @@ def extract_features(dataloader, backbone, output_dir, split, device='cuda'):
         dataloader: PyTorch DataLoader with raw images
                    Each batch should have 'image' and 'target' keys
         backbone: ResNet101Backbone instance (should be frozen)
-        output_dir: Directory to save extracted features
+        output_dir: Base directory to save extracted features
         split: Split name ('train', 'val', 'test')
         device: Device to run extraction on ('cuda' or 'cpu')
     """
     # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
+    split_output_dir = os.path.join(output_dir, split)
+    os.makedirs(split_output_dir, exist_ok=True)
 
     backbone = backbone.to(device)
     backbone.eval()
 
     print(f"\nExtracting features for '{split}' split...")
-    print(f"Output directory: {output_dir}")
+    print(f"Output directory: {split_output_dir}")
     print(f"Device: {device}")
 
     sample_count = 0
@@ -63,14 +64,14 @@ def extract_features(dataloader, backbone, output_dir, split, device='cuda'):
                     # For segmentation/lanes: target is a tensor
                     save_dict['target'] = batch['target'][i].cpu()
 
-                # Save to disk
-                save_path = os.path.join(output_dir, f"{split}_{sample_count:05d}.pt")
+                # Save to disk with simple count-based naming
+                save_path = os.path.join(split_output_dir, f"{sample_count:05d}.pt")
                 torch.save(save_dict, save_path)
 
                 sample_count += 1
 
     print(f"✓ Extracted {sample_count} samples for '{split}' split")
-    print(f"  Saved to: {output_dir}")
+    print(f"  Saved to: {split_output_dir}")
 
 
 def main():

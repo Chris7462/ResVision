@@ -144,11 +144,16 @@ Each `.pt` file contains:
 **Output:**
 ```
 features/segmentation/
-├── train_00000.pt
-├── train_00001.pt
-├── ...
-├── val_00000.pt
-└── test_00000.pt
+├── train/
+│   ├── 00000.pt
+│   ├── 00001.pt
+│   └── ...
+├── val/
+│   ├── 00000.pt
+│   └── ...
+└── test/
+    ├── 00000.pt
+    └── ...
 ```
 
 **Time estimate:** ~30-60 minutes for full Cityscapes (depends on GPU)
