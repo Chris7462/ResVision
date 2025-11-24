@@ -1,157 +1,219 @@
 """
-Extract and cache ResNet101 backbone features for faster training
+Generic Feature Extraction Script
+Extracts ResNet101 backbone features from any dataset and caches them to disk
+Used by all tasks (segmentation, object detection, lane detection)
 """
 
-import torch
 import os
+import torch
 import argparse
 from tqdm import tqdm
-from create_camvid_dataloaders import create_camvid_dataloaders
-from create_cityscapes_dataloaders import create_cityscapes_dataloaders
-from fcn import create_fcn_model
 
 
-def extract_features(dataloader, model, device, output_dir, split_name):
+def extract_features(dataloader, backbone, output_dir, split, device='cuda'):
     """
-    Extract and save features from backbone
+    Extract and save ResNet101 features from a dataset.
 
     Args:
-        dataloader: PyTorch DataLoader
-        model: FCN model with backbone
-        device: torch device
-        output_dir: Directory to save features
-        split_name: 'train', 'val', or 'test'
-        backbone: 'vgg16' or 'resnet101'
+        dataloader: PyTorch DataLoader with raw images
+                   Each batch should have 'image' and 'target' keys
+        backbone: ResNet101Backbone instance (should be frozen)
+        output_dir: Directory to save extracted features
+        split: Split name ('train', 'val', 'test')
+        device: Device to run extraction on ('cuda' or 'cpu')
     """
-    model.eval()
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    feature_count = 0
+    backbone = backbone.to(device)
+    backbone.eval()
+
+    print(f"\nExtracting features for '{split}' split...")
+    print(f"Output directory: {output_dir}")
+    print(f"Device: {device}")
+
+    sample_count = 0
 
     with torch.no_grad():
-        for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"Extracting {split_name}")):
+        for batch in tqdm(dataloader, desc=f"Extracting {split}"):
             images = batch['image'].to(device)
-            filenames = batch['filename']
-            masks = batch['mask']
+            batch_size = images.size(0)
 
-            # Extract features from backbone
-            features = model.pretrained_net(images)
+            # Extract features through backbone
+            features = backbone(images)
 
-            # Save features for each image in batch
-            for i in range(len(filenames)):
-                # ResNet101: 4 feature maps
-                feature_dict = {
-                    'x1': features['x1'][i].cpu(),  # (256, H/4, W/4)
-                    'x2': features['x2'][i].cpu(),  # (512, H/8, W/8)
-                    'x3': features['x3'][i].cpu(),  # (1024, H/16, W/16)
-                    'x4': features['x4'][i].cpu(),  # (2048, H/32, W/32)
-                    'mask': masks[i],
-                    'filename': filenames[i]
+            # Save each sample in the batch
+            for i in range(batch_size):
+                # Prepare save dictionary
+                save_dict = {
+                    'x1': features['x1'][i].cpu(),
+                    'x2': features['x2'][i].cpu(),
+                    'x3': features['x3'][i].cpu(),
+                    'x4': features['x4'][i].cpu(),
                 }
 
-                # Save to disk
-                save_path = os.path.join(output_dir, f"{split_name}_{feature_count:05d}.pt")
-                torch.save(feature_dict, save_path)
-                feature_count += 1
+                # Add target (task-specific: mask/boxes/lanes)
+                if isinstance(batch['target'], dict):
+                    # For detection: target is a dict with boxes, labels, etc.
+                    save_dict['target'] = {
+                        k: v[i].cpu() if isinstance(v, torch.Tensor) else v[i]
+                        for k, v in batch['target'].items()
+                    }
+                else:
+                    # For segmentation/lanes: target is a tensor
+                    save_dict['target'] = batch['target'][i].cpu()
 
-    print(f"✓ {split_name} features saved to {output_dir}")
-    print(f"  Total features extracted: {feature_count}")
+                # Add metadata
+                metadata = {}
+                if 'filename' in batch:
+                    filename = batch['filename'][i] if isinstance(batch['filename'], list) else batch['filename']
+                    metadata['filename'] = filename
+                if 'image_id' in batch:
+                    metadata['image_id'] = batch['image_id'][i].item() if isinstance(batch['image_id'], torch.Tensor) else batch['image_id'][i]
+
+                save_dict['metadata'] = metadata
+
+                # Save to disk
+                save_path = os.path.join(output_dir, f"{split}_{sample_count:05d}.pt")
+                torch.save(save_dict, save_path)
+
+                sample_count += 1
+
+    print(f"✓ Extracted {sample_count} samples for '{split}' split")
+    print(f"  Saved to: {output_dir}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Extract and cache backbone features')
-    parser.add_argument('--dataset', type=str, default='camvid', choices=['camvid', 'cityscapes'],
-                        help='Dataset to use (default: camvid)')
+    parser = argparse.ArgumentParser(
+        description='Extract ResNet101 features from a dataset',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Example usage:
+  # Segmentation (Cityscapes)
+  python extract_features.py \\
+    --task segmentation \\
+    --dataset cityscapes \\
+    --data-root ./data/Cityscapes \\
+    --output-dir ./features/cityscapes_resnet101 \\
+    --batch-size 8
+
+  # Object Detection (COCO)
+  python extract_features.py \\
+    --task detection \\
+    --dataset coco \\
+    --data-root ./data/COCO \\
+    --output-dir ./features/coco_resnet101 \\
+    --batch-size 8
+        """
+    )
+
+    parser.add_argument('--task', type=str, required=True,
+                        choices=['segmentation', 'detection', 'lane_detection'],
+                        help='Task type')
+    parser.add_argument('--dataset', type=str, required=True,
+                        help='Dataset name (e.g., cityscapes, coco, tusimple)')
+    parser.add_argument('--data-root', type=str, required=True,
+                        help='Root directory of the dataset')
+    parser.add_argument('--output-dir', type=str, required=True,
+                        help='Directory to save extracted features')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size for feature extraction (default: 8)')
     parser.add_argument('--num-workers', type=int, default=4,
                         help='Number of data loading workers (default: 4)')
-    parser.add_argument('--output-dir', type=str, default='./features',
-                        help='Directory to save extracted features (default: ./features)')
+    parser.add_argument('--device', type=str, default='cuda',
+                        choices=['cuda', 'cpu'],
+                        help='Device to use (default: cuda)')
+    parser.add_argument('--splits', type=str, nargs='+',
+                        default=['train', 'val', 'test'],
+                        help='Splits to extract (default: train val test)')
+
     args = parser.parse_args()
 
-    # Dataset configurations
-    DATASET_CONFIGS = {
-            'camvid': {
-                'raw_image_dir': './CamVid/701_StillsRaw_full',
-                'label_dir': './CamVid/LabeledApproved_full',
-                'splits_dir': './CamVid/splits',
-                'dataset_info_path': './CamVid/splits/dataset_info.json',
-                'target_size': (480, 352),
-                },
-            'cityscapes': {
-                'leftimg_dir': './Cityscapes/leftImg8bit',
-                'gtfine_dir': './Cityscapes/gtFine',
-                'splits_dir': './Cityscapes/splits',
-                'dataset_info_path': './Cityscapes/splits/dataset_info.json',
-                'target_size': (2048, 1024),
-                }
-            }
+    # Check device availability
+    if args.device == 'cuda' and not torch.cuda.is_available():
+        print("Warning: CUDA not available, using CPU")
+        args.device = 'cpu'
 
-    config = DATASET_CONFIGS[args.dataset]
-
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    print("="*80)
+    print("ResVision Feature Extraction")
+    print("="*80)
+    print(f"Task: {args.task}")
     print(f"Dataset: {args.dataset}")
+    print(f"Data root: {args.data_root}")
+    print(f"Output directory: {args.output_dir}")
+    print(f"Batch size: {args.batch_size}")
+    print(f"Splits: {args.splits}")
+    print(f"Device: {args.device}")
 
-    # Create dataloaders
-    print("\nCreating dataloaders...")
-    if args.dataset == 'camvid':
-        dataloaders = create_camvid_dataloaders(
-            raw_image_dir=config['raw_image_dir'],
-            label_dir=config['label_dir'],
-            splits_dir=config['splits_dir'],
-            dataset_info_path=config['dataset_info_path'],
+    # Import task-specific dataloader creator
+    # This allows the script to work with any task
+    if args.task == 'segmentation':
+        if args.dataset == 'cityscapes':
+            from segmentation.datasets.create_cityscapes_dataloaders import create_cityscapes_dataloaders
+            dataloader_fn = create_cityscapes_dataloaders
+        else:
+            raise ValueError(f"Unknown segmentation dataset: {args.dataset}")
+
+    elif args.task == 'detection':
+        if args.dataset == 'coco':
+            from object_detection.datasets.create_coco_dataloaders import create_coco_dataloaders
+            dataloader_fn = create_coco_dataloaders
+        else:
+            raise ValueError(f"Unknown detection dataset: {args.dataset}")
+
+    elif args.task == 'lane_detection':
+        if args.dataset == 'tusimple':
+            from lane_detection.datasets.create_tusimple_dataloaders import create_tusimple_dataloaders
+            dataloader_fn = create_tusimple_dataloaders
+        elif args.dataset == 'culane':
+            from lane_detection.datasets.create_culane_dataloaders import create_culane_dataloaders
+            dataloader_fn = create_culane_dataloaders
+        else:
+            raise ValueError(f"Unknown lane detection dataset: {args.dataset}")
+
+    else:
+        raise ValueError(f"Unknown task: {args.task}")
+
+    # Create ResNet101 backbone (frozen, pretrained)
+    from common.backbone.resnet import create_resnet101_backbone
+
+    print("\nCreating ResNet101 backbone...")
+    backbone = create_resnet101_backbone(pretrained=True, freeze=True)
+    print(backbone)
+
+    # Extract features for each split
+    for split in args.splits:
+        print(f"\n{'='*80}")
+        print(f"Processing '{split}' split")
+        print(f"{'='*80}")
+
+        # Create dataloader for this split
+        # Note: Each task's dataloader function should accept these arguments
+        dataloaders = dataloader_fn(
+            data_root=args.data_root,
             batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            target_size=config['target_size']
-        )
-    elif args.dataset == 'cityscapes':
-        dataloaders = create_cityscapes_dataloaders(
-            leftimg_dir=config['leftimg_dir'],
-            gtfine_dir=config['gtfine_dir'],
-            splits_dir=config['splits_dir'],
-            dataset_info_path=config['dataset_info_path'],
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            target_size=config['target_size']
+            num_workers=args.num_workers
         )
 
-    num_classes = dataloaders['num_classes']
+        if split not in dataloaders:
+            print(f"Warning: Split '{split}' not found in dataloaders, skipping...")
+            continue
 
-    # Create model with frozen backbone
-    print(f"\nCreating FCN model with {args.backbone} backbone...")
-    model = create_fcn_model(n_class=num_classes, backbone=args.backbone, pretrained=True)
-    model = model.to(device)
-    model.eval()
+        dataloader = dataloaders[split]
 
-    # Create output directory
-    output_dir = os.path.join(args.output_dir, f"{args.dataset}_{args.backbone}")
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"\nOutput directory: {output_dir}")
-
-    # Extract features for all splits
-    print("\n" + "="*80)
-    print("Starting Feature Extraction")
-    print("="*80)
-
-    for split_name in ['train', 'val', 'test']:
-        print(f"\nExtracting {split_name} features...")
+        # Extract and save features
         extract_features(
-            dataloader=dataloaders[split_name],
-            model=model,
-            device=device,
-            output_dir=output_dir,
-            split_name=split_name,
-            backbone=args.backbone
+            dataloader=dataloader,
+            backbone=backbone,
+            output_dir=args.output_dir,
+            split=split,
+            device=args.device
         )
 
     print("\n" + "="*80)
-    print("Feature Extraction Complete!")
+    print("Feature extraction complete!")
     print("="*80)
-    print(f"\nFeatures saved to: {output_dir}")
-    print(f"You can now train using: python train_fcn_features.py --feature-dir {output_dir}")
+    print(f"Features saved to: {args.output_dir}")
 
 
 if __name__ == '__main__':
