@@ -58,7 +58,6 @@ class FeatureDataset(Dataset):
                 'x3': (1024, H/16, W/16) - ResNet layer3 output
                 'x4': (2048, H/32, W/32) - ResNet layer4 output
                 'target': Task-specific target (mask/boxes/lanes)
-                'metadata': Dict with filename and other info
         """
         feature_path = os.path.join(self.feature_dir, self.feature_files[idx])
         data = torch.load(feature_path, weights_only=False)
@@ -106,8 +105,7 @@ if __name__ == '__main__':
         print(f"\nTarget type: {type(sample['target'])}")
         if isinstance(sample['target'], torch.Tensor):
             print(f"Target shape: {sample['target'].shape}")
-        print(f"\nMetadata: {sample['metadata']}")
 
-        print("\n✓ FeatureDataset test passed!")
+        print("\nFeatureDataset test passed!")
     else:
-        print("\n✗ No samples found in dataset!")
+        print("\nNo samples found in dataset!")

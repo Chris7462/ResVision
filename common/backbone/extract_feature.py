@@ -63,16 +63,6 @@ def extract_features(dataloader, backbone, output_dir, split, device='cuda'):
                     # For segmentation/lanes: target is a tensor
                     save_dict['target'] = batch['target'][i].cpu()
 
-                # Add metadata
-                metadata = {}
-                if 'filename' in batch:
-                    filename = batch['filename'][i] if isinstance(batch['filename'], list) else batch['filename']
-                    metadata['filename'] = filename
-                if 'image_id' in batch:
-                    metadata['image_id'] = batch['image_id'][i].item() if isinstance(batch['image_id'], torch.Tensor) else batch['image_id'][i]
-
-                save_dict['metadata'] = metadata
-
                 # Save to disk
                 save_path = os.path.join(output_dir, f"{split}_{sample_count:05d}.pt")
                 torch.save(save_dict, save_path)
