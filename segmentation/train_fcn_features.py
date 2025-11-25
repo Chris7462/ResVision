@@ -291,7 +291,6 @@ def main():
         criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-
     # Use ReduceLROnPlateau scheduler
     scheduler = lr_scheduler.ReduceLROnPlateau(
         optimizer,

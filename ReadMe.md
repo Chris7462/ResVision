@@ -20,8 +20,8 @@ ResVision implements a transfer learning approach where:
 ### 1. Semantic Segmentation (Cityscapes)
 FCN decoder for pixel-wise classification on Cityscapes dataset.
 
-**Status:** Complete  
-**Documentation:** [segmentation/README.md](segmentation/README.md)
+**Status:** Complete
+**Documentation:** [segmentation/ReadMe.md](segmentation/ReadMe.md)
 
 ### 2. Object Detection (COCO)
 FCOS decoder for anchor-free object detection.
@@ -52,7 +52,7 @@ pip install -r requirements.txt
 
 ### Getting Started with Segmentation
 
-See detailed instructions in [segmentation/README.md](segmentation/README.md)
+See detailed instructions in [segmentation/ReadMe.md](segmentation/ReadMe.md)
 
 **Quick workflow:**
 ```bash
@@ -82,16 +82,16 @@ python segmentation/test_fcn.py \
 ```
 ResVision/
 ├── common/
-│   ├── backbone/              # Shared ResNet101 backbone
-│   │   ├── resnet.py         # ResNet101 implementation
+│   ├── backbone/               # Shared ResNet101 backbone
+│   │   ├── resnet.py           # ResNet101 implementation
 │   │   └── __init__.py
-│   ├── datasets/              # Shared dataset utilities
-│   │   ├── feature_dataset.py    # Dataset for cached features
+│   ├── datasets/               # Shared dataset utilities
+│   │   ├── feature_dataset.py  # Dataset for cached features
 │   │   ├── create_feature_dataloaders.py  # Feature dataloader creation
 │   │   └── __init__.py
-│   └── tools/                 # Common utility scripts
-│       └── extract_features.py   # Feature extraction script
-├── segmentation/              # Semantic segmentation (FCN on Cityscapes)
+│   └── tools/                  # Common utility scripts
+│       └── extract_features.py # Feature extraction script
+├── segmentation/               # Semantic segmentation (FCN on Cityscapes)
 │   ├── datasets/
 │   │   ├── cityscapes_dataset.py
 │   │   ├── create_cityscapes_dataloaders.py
@@ -104,7 +104,7 @@ ResVision/
 │   │   └── __init__.py
 │   ├── train_fcn_features.py  # Training script
 │   ├── test_fcn.py            # Evaluation script
-│   └── README.md              # Segmentation documentation
+│   └── ReadMe.md              # Segmentation documentation
 ├── object_detection/          # Object detection (FCOS on COCO) - TBD
 ├── lane_detection/            # Lane detection (SCNN on TuSimple) - TBD
 ├── tools/                     # Utility scripts
@@ -116,7 +116,7 @@ ResVision/
 ├── plots/                     # Training plots (gitignored)
 ├── .gitignore
 ├── requirements.txt
-└── README.md                  # This file
+└── ReadMe.md                  # This file
 ```
 
 ## Design Philosophy
@@ -158,7 +158,7 @@ When adding new tasks:
 3. Create dataloader using standard Cityscapes pattern
 4. Implement task-specific head/decoder
 5. Create training and testing scripts
-6. Add task-specific README with documentation
+6. Add task-specific ReadMe with documentation
 7. Update `common/tools/extract_features.py` to support new task
 
 ## References
