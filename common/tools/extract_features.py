@@ -22,7 +22,7 @@ def extract_features(dataloader, backbone, output_dir, split, device='cuda'):
         split: Split name ('train', 'val', 'test')
         device: Device to run extraction on ('cuda' or 'cpu')
     """
-    # Create output directory
+    # Create output directory for this split
     split_output_dir = os.path.join(output_dir, split)
     os.makedirs(split_output_dir, exist_ok=True)
 
@@ -45,12 +45,12 @@ def extract_features(dataloader, backbone, output_dir, split, device='cuda'):
 
             # Save each sample in the batch
             for i in range(batch_size):
-                # Prepare save dictionary
+                # Prepare save dictionary with standard FPN notation
                 save_dict = {
-                    'x1': features['x1'][i].cpu(),
-                    'x2': features['x2'][i].cpu(),
-                    'x3': features['x3'][i].cpu(),
-                    'x4': features['x4'][i].cpu(),
+                    'c2': features['c2'][i].cpu(),
+                    'c3': features['c3'][i].cpu(),
+                    'c4': features['c4'][i].cpu(),
+                    'c5': features['c5'][i].cpu(),
                 }
 
                 # Add target (task-specific: mask/boxes/lanes)

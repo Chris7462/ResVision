@@ -82,10 +82,10 @@ if __name__ == '__main__':
         for batch_idx, batch in enumerate(train_loader):
             print(f"\nBatch {batch_idx}:")
             print(f"  Keys: {list(batch.keys())}")
-            print(f"  x1 shape: {batch['x1'].shape}")
-            print(f"  x2 shape: {batch['x2'].shape}")
-            print(f"  x3 shape: {batch['x3'].shape}")
-            print(f"  x4 shape: {batch['x4'].shape}")
+            print(f"  c2 shape: {batch['c2'].shape}")
+            print(f"  c3 shape: {batch['c3'].shape}")
+            print(f"  c4 shape: {batch['c4'].shape}")
+            print(f"  c5 shape: {batch['c5'].shape}")
             print(f"  Target shape: {batch['target'].shape}")
             break
 

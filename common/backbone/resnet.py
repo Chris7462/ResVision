@@ -8,17 +8,18 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet101, ResNet101_Weights
 from torchvision.models._utils import IntermediateLayerGetter
+from . import RESNET101_FEATURE_CHANNELS
 
 
 class ResNet101Backbone(nn.Module):
     """
     ResNet101 backbone that extracts multi-scale features.
 
-    Features extracted:
-        - x1 (C2): 256 channels, stride 4  (after layer1/conv2_x)
-        - x2 (C3): 512 channels, stride 8  (after layer2/conv3_x)
-        - x3 (C4): 1024 channels, stride 16 (after layer3/conv4_x)
-        - x4 (C5): 2048 channels, stride 32 (after layer4/conv5_x)
+    Features extracted (using standard FPN notation):
+        - c2: 256 channels, stride 4  (after layer1/conv2_x)
+        - c3: 512 channels, stride 8  (after layer2/conv3_x)
+        - c4: 1024 channels, stride 16 (after layer3/conv4_x)
+        - c5: 2048 channels, stride 32 (after layer4/conv5_x)
 
     Args:
         pretrained: If True, load ImageNet pretrained weights
@@ -34,22 +35,17 @@ class ResNet101Backbone(nn.Module):
 
         # Define which layers to extract features from
         return_layers = {
-            'layer1': 'x1',  # C2: (B, 256, H/4, W/4)
-            'layer2': 'x2',  # C3: (B, 512, H/8, W/8)
-            'layer3': 'x3',  # C4: (B, 1024, H/16, W/16)
-            'layer4': 'x4',  # C5: (B, 2048, H/32, W/32)
+            'layer1': 'c2',  # stride 4:  (B, 256, H/4, W/4)
+            'layer2': 'c3',  # stride 8:  (B, 512, H/8, W/8)
+            'layer3': 'c4',  # stride 16: (B, 1024, H/16, W/16)
+            'layer4': 'c5',  # stride 32: (B, 2048, H/32, W/32)
         }
 
         # Create feature extractor
         self.backbone = IntermediateLayerGetter(resnet, return_layers=return_layers)
 
-        # Feature channels for each level
-        self.feature_channels = {
-            'x1': 256,
-            'x2': 512,
-            'x3': 1024,
-            'x4': 2048,
-        }
+        # Use shared feature channels constant
+        self.feature_channels = RESNET101_FEATURE_CHANNELS
 
         # Freeze backbone if requested
         if freeze:
@@ -66,10 +62,10 @@ class ResNet101Backbone(nn.Module):
         Returns:
             dict: Multi-scale features
                 {
-                    'x1': (B, 256, H/4, W/4),
-                    'x2': (B, 512, H/8, W/8),
-                    'x3': (B, 1024, H/16, W/16),
-                    'x4': (B, 2048, H/32, W/32)
+                    'c2': (B, 256, H/4, W/4),
+                    'c3': (B, 512, H/8, W/8),
+                    'c4': (B, 1024, H/16, W/16),
+                    'c5': (B, 2048, H/32, W/32)
                 }
         """
         return self.backbone(x)
@@ -85,10 +81,10 @@ class ResNet101Backbone(nn.Module):
             f"  Status: {frozen_status}\n"
             f"  Total parameters: {total_params:,}\n"
             f"  Trainable parameters: {trainable_params:,}\n"
-            f"  Feature channels: x1={self.feature_channels['x1']}, "
-            f"x2={self.feature_channels['x2']}, "
-            f"x3={self.feature_channels['x3']}, "
-            f"x4={self.feature_channels['x4']}\n"
+            f"  Feature channels: c2={self.feature_channels['c2']}, "
+            f"c3={self.feature_channels['c3']}, "
+            f"c4={self.feature_channels['c4']}, "
+            f"c5={self.feature_channels['c5']}\n"
             f")"
         )
 

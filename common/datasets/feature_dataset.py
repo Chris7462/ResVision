@@ -12,11 +12,11 @@ class FeatureDataset(Dataset):
     """
     Generic dataset for loading pre-computed ResNet101 backbone features.
 
-    All tasks use the same feature format from ResNet101:
-        - x1 (C2): 256 channels, H/4, W/4
-        - x2 (C3): 512 channels, H/8, W/8
-        - x3 (C4): 1024 channels, H/16, W/16
-        - x4 (C5): 2048 channels, H/32, W/32
+    All tasks use the same feature format from ResNet101 (standard FPN notation):
+        - c2: 256 channels, H/4, W/4   (stride 4)
+        - c3: 512 channels, H/8, W/8   (stride 8)
+        - c4: 1024 channels, H/16, W/16 (stride 16)
+        - c5: 2048 channels, H/32, W/32 (stride 32)
 
     Each task selects which feature levels it needs during training.
     The 'target' field is task-specific (masks/boxes/lanes).
@@ -80,10 +80,10 @@ class FeatureDataset(Dataset):
 
         Returns:
             dict with keys:
-                'x1': (256, H/4, W/4) - ResNet layer1 output
-                'x2': (512, H/8, W/8) - ResNet layer2 output
-                'x3': (1024, H/16, W/16) - ResNet layer3 output
-                'x4': (2048, H/32, W/32) - ResNet layer4 output
+                'c2': (256, H/4, W/4) - stride 4 features
+                'c3': (512, H/8, W/8) - stride 8 features
+                'c4': (1024, H/16, W/16) - stride 16 features
+                'c5': (2048, H/32, W/32) - stride 32 features
                 'target': Task-specific target (mask/boxes/lanes)
         """
         feature_path = self.feature_paths[idx]
