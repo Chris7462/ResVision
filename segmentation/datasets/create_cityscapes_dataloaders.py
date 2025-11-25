@@ -17,38 +17,13 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def get_training_transform(target_size, mean=IMAGENET_MEAN, std=IMAGENET_STD, use_augmentation=False):
+def get_transform(target_size, mean=IMAGENET_MEAN, std=IMAGENET_STD):
     """
-    Get training transforms
+    Get transforms for feature extraction (no augmentation).
 
-    Args:
-        target_size: (width, height) tuple
-        mean: RGB mean for normalization (default: ImageNet)
-        std: RGB std for normalization (default: ImageNet)
-        use_augmentation: If True, apply data augmentation (for trainable backbone).
-                         If False, only resize and normalize (for frozen backbone/feature extraction).
-    """
-    if use_augmentation:
-        # Full augmentation for end-to-end training with trainable backbone
-        return A.Compose([
-            A.Resize(height=target_size[1], width=target_size[0]),
-            A.HorizontalFlip(p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-            A.Normalize(mean=mean, std=std),
-            ToTensorV2()
-        ])
-    else:
-        # No augmentation for feature extraction with frozen backbone
-        return A.Compose([
-            A.Resize(height=target_size[1], width=target_size[0]),
-            A.Normalize(mean=mean, std=std),
-            ToTensorV2()
-        ])
-
-
-def get_validation_transform(target_size, mean=IMAGENET_MEAN, std=IMAGENET_STD):
-    """
-    Get validation/test transforms (no augmentation)
+    For transfer learning with frozen backbone, we extract features once
+    and cache them. No augmentation is applied. Same transform used for
+    train, val, and test splits.
 
     Args:
         target_size: (width, height) tuple
@@ -66,11 +41,11 @@ def create_cityscapes_dataloaders(
     data_root,
     batch_size=8,
     num_workers=4,
-    target_size=(1024, 512),
-    use_augmentation=False
+    target_size=(1024, 512)
 ):
     """
-    Simple interface for feature extraction and standard use cases.
+    Create train, validation, and test dataloaders for Cityscapes.
+
     Assumes standard Cityscapes directory structure:
         data_root/
             leftImg8bit/
@@ -90,68 +65,27 @@ def create_cityscapes_dataloaders(
         batch_size: Batch size for training
         num_workers: Number of workers for data loading
         target_size: (width, height) tuple (default: 1024×512)
-        use_augmentation: If True, apply data augmentation to training set (default: False)
 
     Returns:
         dict with 'train', 'val', 'test' dataloaders and metadata
     """
+    # Setup paths
     leftimg_dir = os.path.join(data_root, 'leftImg8bit')
     gtfine_dir = os.path.join(data_root, 'gtFine')
     splits_dir = os.path.join(data_root, 'splits')
     dataset_info_path = os.path.join(data_root, 'splits', 'dataset_info.json')
-
-    return create_cityscapes_dataloaders_detailed(
-        leftimg_dir=leftimg_dir,
-        gtfine_dir=gtfine_dir,
-        splits_dir=splits_dir,
-        dataset_info_path=dataset_info_path,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        target_size=target_size,
-        use_augmentation=use_augmentation
-    )
-
-
-def create_cityscapes_dataloaders_detailed(
-    leftimg_dir,
-    gtfine_dir,
-    splits_dir,
-    dataset_info_path,
-    batch_size=8,
-    num_workers=4,
-    target_size=(1024, 512),
-    use_augmentation=False
-):
-    """
-    Detailed interface with explicit paths.
-    Use this if your directory structure is non-standard.
-
-    Args:
-        leftimg_dir: Base directory with leftImg8bit images (contains train/val subdirs)
-        gtfine_dir: Base directory with gtFine labels (contains train/val subdirs)
-        splits_dir: Directory containing train.txt, val.txt, test.txt
-        dataset_info_path: Path to dataset_info.json
-        batch_size: Batch size for training
-        num_workers: Number of workers for data loading
-        target_size: (width, height) tuple (default: 1024×512)
-        use_augmentation: If True, apply data augmentation to training set (default: False)
-
-    Returns:
-        dict with 'train', 'val', 'test' dataloaders and metadata
-    """
 
     # Load dataset info
     with open(dataset_info_path, 'r') as f:
         info = json.load(f)
 
     print(f"Creating Cityscapes dataloaders...")
-    print(f"  Target size: {target_size[0]}×{target_size[1]}")
+    print(f"  Target size: {target_size[0]}x{target_size[1]}")
     print(f"  Normalization: ImageNet (mean={IMAGENET_MEAN}, std={IMAGENET_STD})")
-    print(f"  Data augmentation: {'Enabled' if use_augmentation else 'Disabled'}")
+    print(f"  Mode: Transfer learning (no augmentation)")
 
-    # Create transforms
-    train_transform = get_training_transform(target_size=target_size, use_augmentation=use_augmentation)
-    val_transform = get_validation_transform(target_size=target_size)
+    # Create transform (same for all splits)
+    transform = get_transform(target_size=target_size)
 
     # Create datasets
     train_dataset = CityscapesDataset(
@@ -159,7 +93,7 @@ def create_cityscapes_dataloaders_detailed(
         leftimg_dir=os.path.join(leftimg_dir, 'train'),
         gtfine_dir=os.path.join(gtfine_dir, 'train'),
         dataset_info_path=dataset_info_path,
-        transform=train_transform
+        transform=transform
     )
 
     val_dataset = CityscapesDataset(
@@ -167,7 +101,7 @@ def create_cityscapes_dataloaders_detailed(
         leftimg_dir=os.path.join(leftimg_dir, 'val'),
         gtfine_dir=os.path.join(gtfine_dir, 'val'),
         dataset_info_path=dataset_info_path,
-        transform=val_transform
+        transform=transform
     )
 
     test_dataset = CityscapesDataset(
@@ -175,7 +109,7 @@ def create_cityscapes_dataloaders_detailed(
         leftimg_dir=os.path.join(leftimg_dir, 'train'),  # Test split comes from train
         gtfine_dir=os.path.join(gtfine_dir, 'train'),    # Test split comes from train
         dataset_info_path=dataset_info_path,
-        transform=val_transform
+        transform=transform
     )
 
     # Create dataloaders

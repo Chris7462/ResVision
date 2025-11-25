@@ -43,9 +43,6 @@ class CityscapesDataset(Dataset):
 
         print(f"Loaded {len(self.file_list)} images for this split")
 
-    def __len__(self):
-        return len(self.file_list)
-
     def convert_label_id_to_train_id(self, label_id_mask):
         """Convert labelId mask to trainId mask"""
         train_id_mask = np.full(label_id_mask.shape, self.ignore_index, dtype=np.int64)
@@ -54,6 +51,9 @@ class CityscapesDataset(Dataset):
             train_id_mask[label_id_mask == label_id] = train_id
 
         return train_id_mask
+
+    def __len__(self):
+        return len(self.file_list)
 
     def __getitem__(self, idx):
         # Get city/basename (e.g., 'aachen/aachen_000000_000019')
