@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import os
 import json
 from tqdm import tqdm
+import argparse
 
 from common.datasets import create_feature_dataloaders
 from segmentation.head import FCNDecoder
@@ -21,7 +22,7 @@ from segmentation.utils import batch_iou, batch_pixel_acc
 
 # ================== Configuration ==================
 # Training settings (following original FCN paper)
-BATCH_SIZE = 32  # Can be larger since using cached features
+BATCH_SIZE = 4  # Can be larger since using cached features
 EPOCHS = 100
 LR = 1e-3
 MOMENTUM = 0.9
@@ -42,7 +43,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 
-def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, total_epochs, ignore_index):
+def train_one_epoch(model, train_loader, criterion, optimizer, device, num_classes, ignore_index, epoch, total_epochs):
     """Train for one epoch"""
     model.train()
     running_loss = 0.0
@@ -73,10 +74,10 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, to
         with torch.no_grad():
             preds = outputs.argmax(dim=1).cpu().numpy()
             targets_np = targets.cpu().numpy()
-            
-            batch_iou_score = batch_iou(preds, targets_np, model.num_classes, ignore_index)
+
+            batch_iou_score = batch_iou(preds, targets_np, num_classes, ignore_index)
             batch_pix_acc = batch_pixel_acc(preds, targets_np, ignore_index)
-            
+
             all_ious.append(batch_iou_score)
             all_pixel_accs.append(batch_pix_acc)
 
@@ -94,7 +95,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, epoch, to
     return avg_loss, avg_iou, avg_pixel_acc
 
 
-def validate(model, val_loader, criterion, device, n_class, ignore_index, epoch, total_epochs):
+def validate(model, val_loader, criterion, device, num_classes, ignore_index, epoch, total_epochs):
     """Validate the model"""
     model.eval()
     running_loss = 0.0
@@ -121,17 +122,17 @@ def validate(model, val_loader, criterion, device, n_class, ignore_index, epoch,
             targets_np = targets.cpu().numpy()
 
             # Calculate metrics
-            batch_iou_score = batch_iou(preds, targets_np, n_class, ignore_index)
+            batch_iou_score = batch_iou(preds, targets_np, num_classes, ignore_index)
             batch_pix_acc = batch_pixel_acc(preds, targets_np, ignore_index)
 
             all_ious.append(batch_iou_score)
             all_pixel_accs.append(batch_pix_acc)
 
     avg_loss = running_loss / len(val_loader)
-    mean_iou = np.mean(all_ious)
-    mean_pixel_acc = np.mean(all_pixel_accs)
+    avg_iou = np.mean(all_ious)
+    avg_pixel_acc = np.mean(all_pixel_accs)
 
-    return avg_loss, mean_iou, mean_pixel_acc
+    return avg_loss, avg_iou, avg_pixel_acc
 
 
 def plot_training_history(history, save_dir, experiment_name):
@@ -227,7 +228,18 @@ def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
     return start_epoch, best_iou, history
 
 
-def main(args=None):
+def main():
+    ap = argparse.ArgumentParser(description='Train FCN decoder with cached features')
+    ap.add_argument('--feature-dir', type=str, default='./features/segmentation',
+                    help='Directory containing cached features (default: ./features/segmentation)')
+    ap.add_argument('--dataset-info', type=str, default='./data/Cityscapes/splits/dataset_info.json',
+                    help='Path to dataset_info.json')
+    ap.add_argument('--resume', type=str, default=None,
+                    help='Path to checkpoint to resume training from')
+    ap.add_argument('--override-lr', type=float, default=None,
+                    help='Override learning rate when resuming training')
+    args = ap.parse_args()
+
     # Experiment name
     EXPERIMENT_NAME = f"FCN-ResNet101_cityscapes_cached_batch{BATCH_SIZE}_epoch{EPOCHS}_SGD_lr{LR}"
     print(f"Experiment: {EXPERIMENT_NAME}")
@@ -238,13 +250,9 @@ def main(args=None):
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # Get paths from args or use defaults
-    feature_dir = args.feature_dir if args else './features/segmentation'
-    dataset_info_path = args.dataset_info if args else './data/Cityscapes/splits/dataset_info.json'
-
     # Load dataset info
-    print(f"\nLoading dataset info from: {dataset_info_path}")
-    with open(dataset_info_path, 'r') as f:
+    print(f"\nLoading dataset info from: {args.dataset_info}")
+    with open(args.dataset_info, 'r') as f:
         dataset_info = json.load(f)
 
     num_classes = dataset_info['num_classes']
@@ -258,7 +266,7 @@ def main(args=None):
     # Create dataloaders
     print("\nCreating dataloaders...")
     dataloaders = create_feature_dataloaders(
-        feature_dir=feature_dir,
+        feature_dir=args.feature_dir,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         splits=['train', 'val']
@@ -283,15 +291,14 @@ def main(args=None):
         criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-    
+
     # Use ReduceLROnPlateau scheduler
     scheduler = lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode='max',              # Maximize validation mIoU
         factor=LR_FACTOR,        # Multiply LR by this factor
         patience=LR_PATIENCE,    # Wait this many epochs before reducing
-        min_lr=LR_MIN,           # Minimum LR
-        verbose=True
+        min_lr=LR_MIN            # Minimum LR
     )
 
     print(f"\nOptimizer: SGD")
@@ -317,7 +324,7 @@ def main(args=None):
     }
 
     # Load checkpoint if resuming
-    if args and args.resume:
+    if args.resume:
         start_epoch, best_iou, history = load_checkpoint(
             args.resume, model, optimizer, scheduler, device
         )
@@ -336,7 +343,7 @@ def main(args=None):
     for epoch in range(start_epoch, EPOCHS):
         # Train
         train_loss, train_iou, train_pixel_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, epoch, EPOCHS, ignore_index
+            model, train_loader, criterion, optimizer, device, num_classes, ignore_index, epoch, EPOCHS
         )
 
         # Validate
@@ -408,17 +415,4 @@ def main(args=None):
 
 
 if __name__ == '__main__':
-    import argparse
-
-    ap = argparse.ArgumentParser(description='Train FCN decoder with cached features')
-    ap.add_argument('--feature-dir', type=str, default='./features/segmentation',
-                    help='Directory containing cached features (default: ./features/segmentation)')
-    ap.add_argument('--dataset-info', type=str, default='./data/Cityscapes/splits/dataset_info.json',
-                    help='Path to dataset_info.json')
-    ap.add_argument('--resume', type=str, default=None,
-                    help='Path to checkpoint to resume training from')
-    ap.add_argument('--override-lr', type=float, default=None,
-                    help='Override learning rate when resuming training')
-    args = ap.parse_args()
-
-    main(args)
+    main()
