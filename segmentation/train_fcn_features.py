@@ -140,7 +140,7 @@ def plot_training_history(history, save_dir, experiment_name):
     Plot training and validation loss and metrics curves.
 
     Args:
-        history: Dictionary with keys 'train_loss', 'train_iou', 'train_pixel_acc', 
+        history: Dictionary with keys 'train_loss', 'train_iou', 'train_pixel_acc',
                 'val_loss', 'val_iou', 'val_pixel_acc'
         save_dir: Directory to save the plot
         experiment_name: Name for the saved file
