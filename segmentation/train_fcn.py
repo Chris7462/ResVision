@@ -54,7 +54,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
     all_pixel_accs = []
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{total_epochs} [Train]")
-    for batch_idx, batch in enumerate(pbar):
+    for batch in pbar:
         images = batch['image'].to(device)
         targets = batch['target'].to(device)
 
@@ -82,9 +82,9 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
 
         # Update progress bar
         pbar.set_postfix({
-            'loss': f'{loss.item():.4f}',
-            'mIoU': f'{batch_iou_score:.4f}',
-            'acc': f'{batch_pix_acc:.4f}'
+            'loss': f'{loss.item():.4f}'
+            #'mIoU': f'{batch_iou_score:.4f}',
+            #'acc': f'{batch_pix_acc:.4f}'
         })
 
     avg_loss = running_loss / len(train_loader)
@@ -105,7 +105,7 @@ def validate(model, val_loader, criterion, device, num_classes,
 
     with torch.no_grad():
         pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{total_epochs} [Val]  ")
-        for batch_idx, batch in enumerate(pbar):
+        for batch in pbar:
             images = batch['image'].to(device)
             targets = batch['target'].to(device)
 
