@@ -76,7 +76,6 @@ ResVision/
 │   │   ├── resnet.py           # ResNet101 implementation
 │   │   └── __init__.py
 │   └── __init__.py
-│
 ├── segmentation/               # Semantic segmentation (FCN on Cityscapes)
 │   ├── datasets/
 │   │   ├── cityscapes_dataset.py
@@ -94,21 +93,17 @@ ResVision/
 │   ├── train_fcn.py           # Training script
 │   ├── test_fcn.py            # Evaluation script
 │   └── ReadMe.md              # Segmentation documentation
-│
 ├── object_detection/          # Object detection (FCOS on COCO) - TBD
 ├── lane_detection/            # Lane detection (SCNN on TuSimple) - TBD
-│
 ├── tools/                     # Utility scripts
 │   └── prepare_cityscapes_data.py
-│
 ├── data/                      # Raw datasets (gitignored)
 ├── checkpoints/               # Model weights (gitignored)
 ├── outputs/                   # Experiment results (gitignored)
 ├── plots/                     # Training plots (gitignored)
-│
 ├── .gitignore
 ├── requirements.txt
-└── ReadMe.md                  # This file
+└── ReadMe.md
 ```
 
 ## Design Philosophy
