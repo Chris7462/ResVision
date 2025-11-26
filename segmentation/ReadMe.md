@@ -7,11 +7,11 @@ This module implements FCN (Fully Convolutional Networks) for semantic segmentat
 **Architecture:**
 - **Backbone**: ResNet101 (frozen, pretrained on ImageNet)
 - **Decoder**: FCN with transposed convolutions and skip connections
-- **Strategy**: Transfer learning with cached features
+- **Strategy**: Transfer learning - backbone frozen, only decoder trained
 
 **Key Features:**
-- Pre-compute and cache ResNet101 features once
-- Train only the FCN decoder (much faster, 3-5x speedup)
+- Frozen ResNet101 backbone (pretrained on ImageNet)
+- Train only the FCN decoder (fast and memory efficient)
 - Uses standard FPN notation (C2, C3, C4, C5)
 - Median Frequency Balancing for class imbalance
 - SGD optimizer following original FCN paper
@@ -38,7 +38,6 @@ data/Cityscapes/
 ### 2. Prepare Dataset
 
 Run the preparation script to create train/val/test splits and compute class weights:
-
 ```bash
 python tools/prepare_cityscapes_data.py \
   --data-root ./data/Cityscapes
@@ -54,111 +53,77 @@ python tools/prepare_cityscapes_data.py \
 **Output:**
 ```
 data/Cityscapes/splits/
-├── train.txt       # 2475 images (90% of original train)
+├── train.txt       # 2677 images (90% of original train)
 ├── val.txt         # 500 images (official val set)
-├── test.txt        # 275 images (10% of original train)
+├── test.txt        # 298 images (10% of original train)
 └── dataset_info.json  # Class info, weights, mappings
 ```
 
 ## Training Pipeline
 
-### Step 1: Extract Features
+### Train FCN
 
-Extract ResNet101 features from all images and cache to disk:
+Train the FCN model (frozen backbone + trainable decoder):
 
 ```bash
-python common/tools/extract_features.py \
-  --task segmentation \
+python segmentation/train_fcn.py \
   --data-root ./data/Cityscapes \
-  --batch-size 8 \
-  --device cuda
+  --batch-size 4 \
+  --epochs 100
 ```
 
 **Arguments:**
-- `--task`: Task type (segmentation/detection/lane_detection)
-- `--data-root`: Root directory of Cityscapes dataset
-- `--batch-size`: Batch size for feature extraction (default: 8)
-- `--output-dir`: Custom output directory (default: `./features/segmentation`)
-- `--splits`: Which splits to extract (default: train val test)
-
-**Output:**
-```
-features/segmentation/
-├── train/
-│   ├── 00000.pt
-│   ├── 00001.pt
-│   └── ...
-├── val/
-└── test/
-```
-
-Each `.pt` file contains:
-- `c2`: (256, H/4, W/4) - stride 4 features
-- `c3`: (512, H/8, W/8) - stride 8 features
-- `c4`: (1024, H/16, W/16) - stride 16 features
-- `c5`: (2048, H/32, W/32) - stride 32 features
-- `target`: (H, W) - segmentation mask
-
-### Step 2: Train FCN Decoder
-
-Train the FCN decoder using cached features:
-
-```bash
-python segmentation/train_fcn_features.py \
-  --feature-dir ./features/segmentation \
-  --dataset-info ./data/Cityscapes/splits/dataset_info.json
-```
-
-**Arguments:**
-- `--feature-dir`: Directory containing cached features
-- `--dataset-info`: Path to dataset\_info.json
-- `--resume`: Path to checkpoint to resume training
-- `--override-lr`: Override learning rate when resuming
+- `--data-root`: Root directory of Cityscapes dataset (required)
+- `--batch-size`: Batch size (default: 4). Reduce if OOM occurs.
+- `--epochs`: Number of epochs (default: 100)
+- `--resume`: Path to checkpoint to resume training from
+- `--override-lr`: Override learning rate when resuming training
 
 **Training Configuration:**
-- Batch size: 8
+- Batch size: 4 (adjust based on GPU memory)
 - Epochs: 100
 - Optimizer: SGD (lr=1e-3, momentum=0.9, weight\_decay=5e-4)
 - Scheduler: ReduceLROnPlateau (patience=10, factor=0.5)
 - Loss: CrossEntropyLoss with class weights (Median Frequency Balancing)
 
+**What gets saved:**
+- Only decoder weights (backbone is always from pretrained ImageNet)
+- Optimizer and scheduler states
+- Training history
+
 **Outputs:**
 ```
 checkpoints/segmentation/
-├── FCN-ResNet101_cityscapes_cached_batch8_epoch100_SGD_lr0.001_best.pth
-├── FCN-ResNet101_cityscapes_cached_batch8_epoch100_SGD_lr0.001_last.pth
-└── FCN-ResNet101_cityscapes_cached_batch8_epoch100_SGD_lr0.001_epoch_10.pth
+├── FCN-ResNet101_cityscapes_batch4_epoch100_SGD_lr0.001_best.pth
+├── FCN-ResNet101_cityscapes_batch4_epoch100_SGD_lr0.001_last.pth
+└── FCN-ResNet101_cityscapes_batch4_epoch100_SGD_lr0.001_epoch_10.pth
 
 plots/segmentation/
-└── FCN-ResNet101_cityscapes_cached_batch8_epoch100_SGD_lr0.001_history.png
+└── FCN-ResNet101_cityscapes_batch4_epoch100_SGD_lr0.001_history.png
 ```
 
 **Resume Training:**
 ```bash
-python segmentation/train_fcn_features.py \
-  --feature-dir ./features/segmentation \
-  --dataset-info ./data/Cityscapes/splits/dataset_info.json \
-  --resume ./checkpoints/segmentation/FCN-ResNet101_cityscapes_cached_batch8_epoch100_SGD_lr0.001_last.pth \
+python segmentation/train_fcn.py \
+  --data-root ./data/Cityscapes \
+  --resume ./checkpoints/segmentation/FCN-ResNet101_cityscapes_batch4_epoch100_SGD_lr0.001_last.pth \
   --override-lr 0.0001
 ```
 
-### Step 3: Evaluate
+### Evaluate
 
 Evaluate the trained model on the test set:
-
 ```bash
 python segmentation/test_fcn.py \
-  --checkpoint ./checkpoints/segmentation/FCN-ResNet101_cityscapes_cached_batch8_epoch100_SGD_lr0.001_best.pth \
-  --feature-dir ./features/segmentation \
-  --dataset-info ./data/Cityscapes/splits/dataset_info.json \
+  --checkpoint ./checkpoints/segmentation/FCN-ResNet101_cityscapes_batch4_epoch100_SGD_lr0.001_best.pth \
+  --data-root ./data/Cityscapes \
   --visualize \
   --num-vis 10
 ```
 
 **Arguments:**
-- `--checkpoint`: Path to trained model checkpoint
-- `--feature-dir`: Directory containing cached features
-- `--dataset-info`: Path to dataset\_info.json
+- `--checkpoint`: Path to trained model checkpoint (required)
+- `--data-root`: Root directory of Cityscapes dataset (required)
 - `--visualize`: Generate visualization of predictions
 - `--num-vis`: Number of samples to visualize (default: 5)
 - `--batch-size`: Batch size for evaluation (default: 16)
@@ -191,21 +156,13 @@ The dataset uses 19 training classes (mapped from 34 original classes):
 
 ## Design Decisions
 
-### Why Transfer Learning with Cached Features?
+### Why Frozen Backbone?
 
-1. **Speed**: Extract features once, train decoder multiple times (3-5x faster)
-2. **Memory**: Can use larger batch sizes since backbone not in GPU memory
-3. **Efficiency**: ResNet101 is frozen anyway, no need to recompute features
-4. **Flexibility**: Easy to experiment with different decoder architectures
-
-### Why No Data Augmentation?
-
-Since we're using cached features extracted once:
-- Features are computed from fixed images
-- No augmentation during feature extraction (features cached once)
-- Augmentation would require re-extracting features each time
-
-For end-to-end training with trainable backbone, augmentation would be beneficial.
+Transfer learning with a frozen backbone:
+- **Fast**: No backward pass through backbone, only through decoder
+- **Memory efficient**: No gradients stored for backbone
+- **Effective**: Pretrained ImageNet features are strong for segmentation
+- **Simple**: Single-stage training, no need for feature caching
 
 ### Why SGD instead of Adam?
 
@@ -215,8 +172,15 @@ Following the original FCN paper which uses SGD with momentum. SGD often general
 
 Cityscapes has severe class imbalance (e.g., "road" appears much more than "train"). Class weights help the model learn rare classes better.
 
-## File Structure
+### Checkpoint Saving Strategy
 
+We only save decoder weights because:
+- Backbone never changes (always frozen pretrained ResNet101)
+- Smaller checkpoint files (~10-20MB vs ~170MB+)
+- Cleaner - you only trained the decoder
+- Easy to reproduce - anyone can load: pretrained backbone + your decoder
+
+## File Structure
 ```
 segmentation/
 ├── datasets/
@@ -226,29 +190,32 @@ segmentation/
 ├── head/
 │   ├── decoder.py                     # FCN decoder architecture
 │   └── __init__.py
+├── models/
+│   ├── fcn.py                         # FCN model (backbone + decoder)
+│   └── __init__.py
 ├── utils/
 │   ├── metrics.py                     # IoU and pixel accuracy
 │   └── __init__.py
-├── train_fcn_features.py              # Training script
+├── train_fcn.py                       # Training script
 ├── test_fcn.py                        # Evaluation script
 └── ReadMe.md                          # This file
 ```
 
 ## Troubleshooting
 
-### CUDA Out of Memory during Feature Extraction
-- Reduce `--batch-size` (try 4 or 2)
-- Use smaller input resolution (modify `target_size` in code)
+### CUDA Out of Memory
+- Reduce `--batch-size` (try 2 or 1)
+- Close other GPU processes
 
 ### Training Loss Not Decreasing
 - Check if class weights are loaded correctly
-- Verify feature extraction completed successfully
+- Verify dataset preparation completed successfully
 - Try lowering learning rate with `--override-lr`
 
 ### Low mIoU on Validation
 - Train for more epochs (100 may not be enough)
 - Check if training/validation loss curves look reasonable
-- Visualize predictions to debug
+- Use `--visualize` to inspect predictions
 
 ## References
 

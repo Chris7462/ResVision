@@ -1,19 +1,19 @@
 # ResVision
 
-Multi-task computer vision framework using transfer learning with a shared ResNet101 backbone. Supports semantic segmentation, object detection, and lane detection with pre-computed feature caching for efficient training.
+Multi-task computer vision framework using transfer learning with a shared frozen ResNet101 backbone. Supports semantic segmentation, object detection, and lane detection.
 
 ## Overview
 
 ResVision implements a transfer learning approach where:
-1. **Feature Extraction**: Extract ResNet101 features once and cache to disk
-2. **Task Training**: Train task-specific heads using cached features (3-5x faster)
-3. **Multi-Task**: Share the same backbone across multiple vision tasks
+1. **Frozen Backbone**: ResNet101 pretrained on ImageNet (always frozen)
+2. **Task-Specific Heads**: Train only lightweight decoder heads for each task
+3. **Multi-Task**: Share the same frozen backbone across multiple vision tasks
 
 **Key Benefits:**
-- Extract features once, train multiple times
-- Larger batch sizes (backbone not in GPU memory)
-- Faster experimentation with decoder architectures
+- Fast training (only decoder is trained, backbone frozen)
+- Memory efficient (no gradients stored for backbone)
 - Consistent feature representation across tasks
+- Easy to add new tasks with same backbone
 
 ## Supported Tasks
 
@@ -36,7 +36,6 @@ SCNN decoder for lane line detection.
 ## Quick Start
 
 ### Installation
-
 ```bash
 # Clone repository
 git clone https://github.com/Chris7462/ResVision.git
@@ -59,38 +58,24 @@ See detailed instructions in [segmentation/ReadMe.md](segmentation/ReadMe.md)
 # 1. Prepare dataset
 python tools/prepare_cityscapes_data.py --data-root ./data/Cityscapes
 
-# 2. Extract features
-python common/tools/extract_features.py \
-  --task segmentation \
-  --data-root ./data/Cityscapes
+# 2. Train model
+python segmentation/train_fcn.py --data-root ./data/Cityscapes
 
-# 3. Train decoder
-python segmentation/train_fcn_features.py \
-  --feature-dir ./features/segmentation \
-  --dataset-info ./data/Cityscapes/splits/dataset_info.json
-
-# 4. Evaluate
+# 3. Evaluate
 python segmentation/test_fcn.py \
   --checkpoint ./checkpoints/segmentation/FCN-ResNet101_*_best.pth \
-  --feature-dir ./features/segmentation \
-  --dataset-info ./data/Cityscapes/splits/dataset_info.json \
+  --data-root ./data/Cityscapes \
   --visualize
 ```
 
 ## Project Structure
-
 ```
 ResVision/
 ├── common/
 │   ├── backbone/               # Shared ResNet101 backbone
 │   │   ├── resnet.py           # ResNet101 implementation
 │   │   └── __init__.py
-│   ├── datasets/               # Shared dataset utilities
-│   │   ├── feature_dataset.py  # Dataset for cached features
-│   │   ├── create_feature_dataloaders.py  # Feature dataloader creation
-│   │   └── __init__.py
-│   └── tools/                  # Common utility scripts
-│       └── extract_features.py # Feature extraction script
+│   └── __init__.py
 ├── segmentation/               # Semantic segmentation (FCN on Cityscapes)
 │   ├── datasets/
 │   │   ├── cityscapes_dataset.py
@@ -99,10 +84,13 @@ ResVision/
 │   ├── head/                  # FCN decoder
 │   │   ├── decoder.py
 │   │   └── __init__.py
+│   ├── models/                # FCN model (backbone + decoder)
+│   │   ├── fcn_model.py
+│   │   └── __init__.py
 │   ├── utils/                 # Segmentation metrics
 │   │   ├── metrics.py
 │   │   └── __init__.py
-│   ├── train_fcn_features.py  # Training script
+│   ├── train_fcn.py           # Training script
 │   ├── test_fcn.py            # Evaluation script
 │   └── ReadMe.md              # Segmentation documentation
 ├── object_detection/          # Object detection (FCOS on COCO) - TBD
@@ -110,32 +98,29 @@ ResVision/
 ├── tools/                     # Utility scripts
 │   └── prepare_cityscapes_data.py
 ├── data/                      # Raw datasets (gitignored)
-├── features/                  # Cached features (gitignored)
 ├── checkpoints/               # Model weights (gitignored)
 ├── outputs/                   # Experiment results (gitignored)
 ├── plots/                     # Training plots (gitignored)
 ├── .gitignore
 ├── requirements.txt
-└── ReadMe.md                  # This file
+└── ReadMe.md
 ```
 
 ## Design Philosophy
 
-### Why Transfer Learning with Cached Features?
-
-1. **Speed**: Extract features once, train decoder multiple times (3-5x faster)
-2. **Memory**: Can use larger batch sizes since backbone not in GPU memory
-3. **Efficiency**: ResNet101 is frozen anyway, no need to recompute features
-4. **Flexibility**: Easy to experiment with different decoder architectures
-
-### Why No End-to-End Training?
+### Why Transfer Learning with Frozen Backbone?
 
 This project focuses exclusively on transfer learning:
 - Backbone is always frozen (pretrained ResNet101)
-- Features are cached once and reused
 - Only task-specific heads are trained
+- Fast, memory-efficient, and effective
 
-For end-to-end training with trainable backbones, this is not the right framework.
+**Benefits:**
+1. **Fast Training**: No backward pass through ResNet101, only through lightweight decoder
+2. **Memory Efficient**: No gradients stored for backbone parameters
+3. **Small Checkpoints**: Only save decoder weights (~10-20MB vs ~170MB+ for full model)
+4. **Easy Experimentation**: Quick to try different decoder architectures
+5. **Proven Approach**: Standard practice in modern computer vision
 
 ### Feature Representation (FPN Notation)
 
@@ -146,20 +131,70 @@ All tasks use the same multi-scale features from ResNet101:
 - **C5** (2048 channels, stride 32): Deepest features with semantic information
 
 Different tasks can select which feature levels they need:
-- Segmentation (FCN): Uses all 4 levels (C2, C3, C4, C5)
-- Object Detection (FCOS): Typically uses C3, C4, C5
-- Lane Detection (SCNN): Typically uses C5
+- **Segmentation (FCN)**: Uses all 4 levels (C2, C3, C4, C5)
+- **Object Detection (FCOS)**: Typically uses C3, C4, C5
+- **Lane Detection (SCNN)**: Typically uses C5
 
-## Contributing
+### Checkpoint Strategy
+
+We save only decoder weights because:
+- Backbone never changes (always frozen pretrained ResNet101)
+- Smaller files (~10-20MB instead of ~170MB+)
+- Cleaner conceptually (you only trained the decoder)
+- Easy to reproduce (pretrained backbone + your decoder weights)
+
+## Adding New Tasks
 
 When adding new tasks:
 1. Create task directory (e.g., `object_detection/`)
 2. Implement dataset class that returns images and targets
-3. Create dataloader using standard Cityscapes pattern
+3. Create dataloader factory function
 4. Implement task-specific head/decoder
-5. Create training and testing scripts
-6. Add task-specific ReadMe with documentation
-7. Update `common/tools/extract_features.py` to support new task
+5. Create model class combining frozen backbone + decoder
+6. Create training and testing scripts
+7. Add task-specific ReadMe with documentation
+
+**Example structure:**
+```
+new_task/
+├── datasets/
+│   ├── dataset.py
+│   ├── create_dataloaders.py
+│   └── __init__.py
+├── head/
+│   ├── decoder.py
+│   └── __init__.py
+├── models/
+│   ├── model.py              # Combines backbone + decoder
+│   └── __init__.py
+├── utils/
+│   ├── metrics.py
+│   └── __init__.py
+├── train.py
+├── test.py
+└── ReadMe.md
+```
+
+## Requirements
+
+- Python 3.8+
+- PyTorch 2.0+
+- torchvision
+- numpy
+- Pillow
+- albumentations
+- tqdm
+- matplotlib
+
+See `requirements.txt` for complete list.
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+- New tasks follow the existing structure
+- Code is well-documented
+- Training scripts follow the frozen backbone pattern
+- ReadMes are comprehensive
 
 ## References
 
@@ -167,3 +202,14 @@ When adding new tasks:
 - **ResNet**: He et al., "Deep Residual Learning for Image Recognition" (CVPR 2016)
 - **Cityscapes**: Cordts et al., "The Cityscapes Dataset for Semantic Urban Scene Understanding" (CVPR 2016)
 - **FPN**: Lin et al., "Feature Pyramid Networks for Object Detection" (CVPR 2017)
+
+## License
+
+[Specify your license here]
+
+## Citation
+
+If you use this code in your research, please cite:
+```
+[Add citation information if applicable]
+```

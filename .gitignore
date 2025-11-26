@@ -13,7 +13,6 @@
 # Ignore files with certain extension
 *.swp
 *.pyc
-*.txt
 
 # Ignore build, devel, and logs folder
 __pycache__

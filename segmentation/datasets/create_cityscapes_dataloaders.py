@@ -1,7 +1,6 @@
 """
 Cityscapes DataLoader Creation
-Creates train, validation, and test dataloaders
-Supports both simple interface (for feature extraction) and detailed interface
+Creates train, validation, and test dataloaders with data augmentation for training
 """
 
 import os
@@ -17,24 +16,40 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def get_transform(target_size, mean=IMAGENET_MEAN, std=IMAGENET_STD):
+def get_transform(target_size, mean=IMAGENET_MEAN, std=IMAGENET_STD, train=False):
     """
-    Get transforms for feature extraction (no augmentation).
+    Get transforms for training or validation/test.
 
-    For transfer learning with frozen backbone, we extract features once
-    and cache them. No augmentation is applied. Same transform used for
-    train, val, and test splits.
+    Training uses data augmentation (horizontal flip).
+    Validation/test use only resize and normalization.
 
     Args:
         target_size: (width, height) tuple
         mean: RGB mean for normalization (default: ImageNet)
         std: RGB std for normalization (default: ImageNet)
+        train: If True, apply training augmentations
+
+    Returns:
+        Albumentations Compose object
     """
-    return A.Compose([
-        A.Resize(height=target_size[1], width=target_size[0]),
-        A.Normalize(mean=mean, std=std),
-        ToTensorV2()
-    ])
+    if train:
+        # Training: with data augmentation
+        return A.Compose([
+            A.Resize(height=target_size[1], width=target_size[0]),
+            A.HorizontalFlip(p=0.5),
+            A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.1, rotate_limit=10, p=0.5),
+            # TODO: Experiment with additional augmentations if needed:
+            # A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+            A.Normalize(mean=mean, std=std),
+            ToTensorV2()
+        ])
+    else:
+        # Validation/Test: no augmentation
+        return A.Compose([
+            A.Resize(height=target_size[1], width=target_size[0]),
+            A.Normalize(mean=mean, std=std),
+            ToTensorV2()
+        ])
 
 
 def create_cityscapes_dataloaders(
@@ -82,10 +97,11 @@ def create_cityscapes_dataloaders(
     print(f"Creating Cityscapes dataloaders...")
     print(f"  Target size: {target_size[0]}x{target_size[1]}")
     print(f"  Normalization: ImageNet (mean={IMAGENET_MEAN}, std={IMAGENET_STD})")
-    print(f"  Mode: Transfer learning (no augmentation)")
+    print(f"  Training augmentation: HorizontalFlip(p=0.5)")
 
-    # Create transform (same for all splits)
-    transform = get_transform(target_size=target_size)
+    # Create transforms
+    train_transform = get_transform(target_size=target_size, train=True)
+    val_transform = get_transform(target_size=target_size, train=False)
 
     # Create datasets
     train_dataset = CityscapesDataset(
@@ -93,7 +109,7 @@ def create_cityscapes_dataloaders(
         leftimg_dir=os.path.join(leftimg_dir, 'train'),
         gtfine_dir=os.path.join(gtfine_dir, 'train'),
         dataset_info_path=dataset_info_path,
-        transform=transform
+        transform=train_transform
     )
 
     val_dataset = CityscapesDataset(
@@ -101,7 +117,7 @@ def create_cityscapes_dataloaders(
         leftimg_dir=os.path.join(leftimg_dir, 'val'),
         gtfine_dir=os.path.join(gtfine_dir, 'val'),
         dataset_info_path=dataset_info_path,
-        transform=transform
+        transform=val_transform
     )
 
     test_dataset = CityscapesDataset(
@@ -109,7 +125,7 @@ def create_cityscapes_dataloaders(
         leftimg_dir=os.path.join(leftimg_dir, 'train'),  # Test split comes from train
         gtfine_dir=os.path.join(gtfine_dir, 'train'),    # Test split comes from train
         dataset_info_path=dataset_info_path,
-        transform=transform
+        transform=val_transform
     )
 
     # Create dataloaders
@@ -139,9 +155,9 @@ def create_cityscapes_dataloaders(
     )
 
     print(f"\nDataLoaders created:")
-    print(f"  Train: {len(train_loader)} batches ({len(train_dataset)} images)")
-    print(f"  Val:   {len(val_loader)} batches ({len(val_dataset)} images)")
-    print(f"  Test:  {len(test_loader)} batches ({len(test_dataset)} images)")
+    print(f"  Train: {len(train_loader)} batches ({len(train_dataset)} images) - with augmentation")
+    print(f"  Val:   {len(val_loader)} batches ({len(val_dataset)} images) - no augmentation")
+    print(f"  Test:  {len(test_loader)} batches ({len(test_dataset)} images) - no augmentation")
     print(f"  Batch size: {batch_size}")
 
     return {
@@ -170,7 +186,7 @@ if __name__ == '__main__':
                         help='Target image size (default: 1024 512)')
     args = parser.parse_args()
 
-    # Create dataloaders using simple interface
+    # Create dataloaders
     dataloaders = create_cityscapes_dataloaders(
         data_root=args.data_root,
         batch_size=args.batch_size,
@@ -190,7 +206,7 @@ if __name__ == '__main__':
     print(f"  Ignore index: {dataloaders['ignore_index']}")
     print(f"  Class weights (first 5): {class_weights[:5]}")
 
-    # Test loading one batch
+    # Test loading one batch from train
     print("\nTesting train loader...")
     for batch_idx, batch in enumerate(train_loader):
         images = batch['image']

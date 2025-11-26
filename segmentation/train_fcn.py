@@ -1,6 +1,6 @@
 """
-FCN Training Script for Cityscapes with Cached Features
-Trains FCN decoder using pre-computed ResNet101 features (transfer learning)
+FCN Training Script for Cityscapes with Frozen ResNet101 Backbone
+Trains FCN decoder using transfer learning (backbone frozen, decoder trainable)
 Following original FCN paper training settings
 """
 
@@ -15,14 +15,14 @@ import json
 from tqdm import tqdm
 import argparse
 
-from common.datasets import create_feature_dataloaders
-from segmentation.head import FCNDecoder
+from segmentation.datasets import create_cityscapes_dataloaders
+from segmentation.model import create_fcn_resnet101
 from segmentation.utils import batch_iou, batch_pixel_acc
 
 
 # ================== Configuration ==================
 # Training settings (following original FCN paper)
-BATCH_SIZE = 4  # Can be larger since using cached features
+BATCH_SIZE = 4  # Adjust if OOM occurs with backbone in memory
 EPOCHS = 100
 LR = 1e-3
 MOMENTUM = 0.9
@@ -35,6 +35,7 @@ LR_MIN = 1e-6           # Minimum learning rate
 
 # Data settings
 NUM_WORKERS = 4
+TARGET_SIZE = (1024, 512)  # (width, height)
 
 # Output directories
 MODEL_DIR = './checkpoints/segmentation'
@@ -43,28 +44,26 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 
-def train_one_epoch(model, train_loader, criterion, optimizer, device, num_classes, ignore_index, epoch, total_epochs):
+def train_one_epoch(model, train_loader, criterion, optimizer, device,
+                    num_classes, ignore_index, epoch, total_epochs):
     """Train for one epoch"""
-    model.train()
+    model.train()  # Sets decoder to train mode, backbone stays in eval mode
+
     running_loss = 0.0
     all_ious = []
     all_pixel_accs = []
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{total_epochs} [Train]")
     for batch_idx, batch in enumerate(pbar):
-        # Load cached features
-        c2 = batch['c2'].to(device)
-        c3 = batch['c3'].to(device)
-        c4 = batch['c4'].to(device)
-        c5 = batch['c5'].to(device)
+        images = batch['image'].to(device)
         targets = batch['target'].to(device)
 
-        # Forward pass
+        # Forward pass through model (backbone + decoder)
         optimizer.zero_grad()
-        outputs = model(c2, c3, c4, c5)
+        outputs = model(images)
         loss = criterion(outputs, targets)
 
-        # Backward pass
+        # Backward pass (only decoder parameters updated)
         loss.backward()
         optimizer.step()
 
@@ -95,9 +94,11 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device, num_class
     return avg_loss, avg_iou, avg_pixel_acc
 
 
-def validate(model, val_loader, criterion, device, num_classes, ignore_index, epoch, total_epochs):
+def validate(model, val_loader, criterion, device, num_classes,
+             ignore_index, epoch, total_epochs):
     """Validate the model"""
-    model.eval()
+    model.eval()  # Sets decoder to eval mode, backbone already in eval mode
+
     running_loss = 0.0
     all_ious = []
     all_pixel_accs = []
@@ -105,15 +106,11 @@ def validate(model, val_loader, criterion, device, num_classes, ignore_index, ep
     with torch.no_grad():
         pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{total_epochs} [Val]  ")
         for batch_idx, batch in enumerate(pbar):
-            # Load cached features
-            c2 = batch['c2'].to(device)
-            c3 = batch['c3'].to(device)
-            c4 = batch['c4'].to(device)
-            c5 = batch['c5'].to(device)
+            images = batch['image'].to(device)
             targets = batch['target'].to(device)
 
-            # Forward pass
-            outputs = model(c2, c3, c4, c5)
+            # Forward pass through model
+            outputs = model(images)
             loss = criterion(outputs, targets)
             running_loss += loss.item()
 
@@ -191,7 +188,8 @@ def plot_training_history(history, save_dir, experiment_name):
 
 def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
     """
-    Load checkpoint to resume training
+    Load checkpoint to resume training.
+    Only loads decoder weights (backbone always from pretrained ImageNet).
 
     Args:
         checkpoint_path: Path to checkpoint file
@@ -208,8 +206,9 @@ def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
     print(f"\n[INFO] Loading checkpoint from {checkpoint_path}...")
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-    model.load_state_dict(checkpoint['model_state_dict'])
-    print('[INFO] Model state loaded')
+    # Load only decoder weights (backbone is always from pretrained)
+    model.decoder.load_state_dict(checkpoint['decoder_state_dict'])
+    print('[INFO] Decoder state loaded')
 
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     print('[INFO] Optimizer state loaded')
@@ -229,19 +228,25 @@ def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Train FCN decoder with cached features')
-    ap.add_argument('--feature-dir', type=str, default='./features/segmentation',
-                    help='Directory containing cached features (default: ./features/segmentation)')
-    ap.add_argument('--dataset-info', type=str, default='./data/Cityscapes/splits/dataset_info.json',
-                    help='Path to dataset_info.json')
+    ap = argparse.ArgumentParser(description='Train FCN with frozen ResNet101 backbone')
+    ap.add_argument('--data-root', type=str, required=True,
+                    help='Root directory of Cityscapes dataset')
+    ap.add_argument('--batch-size', type=int, default=BATCH_SIZE,
+                    help=f'Batch size (default: {BATCH_SIZE}). Reduce if OOM occurs.')
+    ap.add_argument('--epochs', type=int, default=EPOCHS,
+                    help=f'Number of epochs (default: {EPOCHS})')
     ap.add_argument('--resume', type=str, default=None,
                     help='Path to checkpoint to resume training from')
     ap.add_argument('--override-lr', type=float, default=None,
                     help='Override learning rate when resuming training')
     args = ap.parse_args()
 
+    # Update config from args
+    batch_size = args.batch_size
+    epochs = args.epochs
+
     # Experiment name
-    EXPERIMENT_NAME = f"FCN-ResNet101_cityscapes_cached_batch{BATCH_SIZE}_epoch{EPOCHS}_SGD_lr{LR}"
+    EXPERIMENT_NAME = f"FCN-ResNet101_cityscapes_batch{batch_size}_epoch{epochs}_SGD_lr{LR}"
     print(f"Experiment: {EXPERIMENT_NAME}")
 
     # Set device
@@ -251,8 +256,9 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # Load dataset info
-    print(f"\nLoading dataset info from: {args.dataset_info}")
-    with open(args.dataset_info, 'r') as f:
+    dataset_info_path = os.path.join(args.data_root, 'splits', 'dataset_info.json')
+    print(f"\nLoading dataset info from: {dataset_info_path}")
+    with open(dataset_info_path, 'r') as f:
         dataset_info = json.load(f)
 
     num_classes = dataset_info['num_classes']
@@ -265,19 +271,19 @@ def main():
 
     # Create dataloaders
     print("\nCreating dataloaders...")
-    dataloaders = create_feature_dataloaders(
-        feature_dir=args.feature_dir,
-        batch_size=BATCH_SIZE,
+    dataloaders = create_cityscapes_dataloaders(
+        data_root=args.data_root,
+        batch_size=batch_size,
         num_workers=NUM_WORKERS,
-        splits=['train', 'val']
+        target_size=TARGET_SIZE
     )
 
     train_loader = dataloaders['train']
     val_loader = dataloaders['val']
 
-    # Create model
-    print(f"\nCreating FCN decoder...")
-    model = FCNDecoder(num_classes=num_classes)
+    # Create FCN model (frozen backbone + trainable decoder)
+    print(f"\nCreating FCN model...")
+    model = create_fcn_resnet101(num_classes=num_classes)
     model = model.to(device)
     print(model)
 
@@ -290,7 +296,9 @@ def main():
         print(f"\nWarning: No class weights found in dataset_info.json, using uniform weights")
         criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
-    optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
+    # Only optimize decoder parameters (backbone is frozen)
+    optimizer = optim.SGD(model.decoder.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
+
     # Use ReduceLROnPlateau scheduler
     scheduler = lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -300,7 +308,7 @@ def main():
         min_lr=LR_MIN            # Minimum LR
     )
 
-    print(f"\nOptimizer: SGD")
+    print(f"\nOptimizer: SGD (decoder only)")
     print(f"  Learning rate: {LR}")
     print(f"  Momentum: {MOMENTUM}")
     print(f"  Weight decay: {WEIGHT_DECAY}")
@@ -339,15 +347,17 @@ def main():
     print("="*80)
 
     # Training loop
-    for epoch in range(start_epoch, EPOCHS):
+    for epoch in range(start_epoch, epochs):
         # Train
         train_loss, train_iou, train_pixel_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, num_classes, ignore_index, epoch, EPOCHS
+            model, train_loader, criterion, optimizer, device,
+            num_classes, ignore_index, epoch, epochs
         )
 
         # Validate
         val_loss, val_iou, val_pixel_acc = validate(
-            model, val_loader, criterion, device, num_classes, ignore_index, epoch, EPOCHS
+            model, val_loader, criterion, device, num_classes,
+            ignore_index, epoch, epochs
         )
 
         # Update learning rate based on validation mIoU
@@ -363,7 +373,7 @@ def main():
         history['val_pixel_acc'].append(val_pixel_acc)
 
         # Print epoch summary
-        print(f"\nEpoch {epoch+1}/{EPOCHS} Summary:")
+        print(f"\nEpoch {epoch+1}/{epochs} Summary:")
         print(f"  LR: {current_lr:.6f}")
         print(f"  Train loss: {train_loss:.4f}, mIoU: {train_iou:.4f}, Pixel Acc: {train_pixel_acc:.4f}")
         print(f"  Val loss: {val_loss:.4f}, mIoU: {val_iou:.4f}, Pixel Acc: {val_pixel_acc:.4f}")
@@ -376,10 +386,10 @@ def main():
         # Check if periodic checkpoint (every 10 epochs)
         is_periodic = (epoch + 1) % 10 == 0
 
-        # Prepare checkpoint
+        # Prepare checkpoint (save decoder only, not backbone)
         checkpoint = {
             'epoch': epoch + 1,  # Next epoch to resume from
-            'model_state_dict': model.state_dict(),
+            'decoder_state_dict': model.decoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
             'best_iou': best_iou,
