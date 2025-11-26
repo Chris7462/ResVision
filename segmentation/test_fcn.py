@@ -1,5 +1,5 @@
 """
-FCN Testing/Evaluation Script for Cityscapes with Cached Features
+FCN Testing/Evaluation Script for Cityscapes
 Evaluates trained FCN decoder and visualizes results
 """
 
@@ -12,8 +12,8 @@ import json
 from tqdm import tqdm
 import argparse
 
-from common.datasets import create_feature_dataloaders
-from segmentation.head import FCNDecoder
+from segmentation.datasets import create_cityscapes_dataloaders
+from segmentation.model import create_fcn_resnet101
 from segmentation.utils import batch_iou, batch_pixel_acc
 
 
@@ -27,8 +27,8 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
     Evaluate the model on a dataset.
 
     Args:
-        model: FCNDecoder model
-        dataloader: Dataloader with cached features
+        model: FCN model
+        dataloader: Dataloader with images
         device: Device to evaluate on
         num_classes: Number of classes
         ignore_index: Index to ignore in evaluation
@@ -50,15 +50,11 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
         pbar = tqdm(dataloader, desc="Evaluating")
 
         for batch in pbar:
-            # Load cached features
-            c2 = batch['c2'].to(device)
-            c3 = batch['c3'].to(device)
-            c4 = batch['c4'].to(device)
-            c5 = batch['c5'].to(device)
+            images = batch['image'].to(device)
             targets = batch['target'].to(device)
 
             # Forward pass
-            outputs = model(c2, c3, c4, c5)
+            outputs = model(images)
 
             # Get predictions
             preds = outputs.argmax(dim=1).cpu().numpy()
@@ -141,6 +137,7 @@ def visualize_predictions(predictions, targets, color_map, num_samples=5, save_p
 def load_model(checkpoint_path, num_classes, device):
     """
     Load trained model from checkpoint.
+    Only loads decoder weights (backbone from pretrained ImageNet).
 
     Args:
         checkpoint_path: Path to checkpoint file
@@ -148,14 +145,18 @@ def load_model(checkpoint_path, num_classes, device):
         device: Device to load model on
 
     Returns:
-        model: Loaded FCNDecoder model
+        model: Loaded FCN model
         checkpoint: Full checkpoint dict
     """
     print(f"Loading model from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-    model = FCNDecoder(num_classes=num_classes)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # Create model (backbone from pretrained, decoder random init)
+    model = create_fcn_resnet101(num_classes=num_classes)
+
+    # Load decoder weights from checkpoint
+    model.decoder.load_state_dict(checkpoint['decoder_state_dict'])
+
     model = model.to(device)
     model.eval()
 
@@ -169,15 +170,13 @@ def load_model(checkpoint_path, num_classes, device):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Test FCN decoder with cached features')
+    ap = argparse.ArgumentParser(description='Test FCN with frozen ResNet101 backbone')
 
     # Model and data arguments
     ap.add_argument('--checkpoint', type=str, required=True,
                      help='Path to model checkpoint')
-    ap.add_argument('--feature-dir', type=str, default='./features/segmentation',
-                    help='Directory containing cached features (default: ./features/segmentation)')
-    ap.add_argument('--dataset-info', type=str, default='./data/Cityscapes/splits/dataset_info.json',
-                    help='Path to dataset_info.json')
+    ap.add_argument('--data-root', type=str, required=True,
+                    help='Root directory of Cityscapes dataset')
 
     # Evaluation arguments
     ap.add_argument('--batch-size', type=int, default=16,
@@ -203,8 +202,9 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # Load dataset info
-    print(f"\nLoading dataset info from: {args.dataset_info}")
-    with open(args.dataset_info, 'r') as f:
+    dataset_info_path = os.path.join(args.data_root, 'splits', 'dataset_info.json')
+    print(f"\nLoading dataset info from: {dataset_info_path}")
+    with open(dataset_info_path, 'r') as f:
         dataset_info = json.load(f)
 
     num_classes = dataset_info['num_classes']
@@ -224,11 +224,11 @@ def main():
 
     # Create dataloader for test split
     print(f"\nCreating dataloader for '{split}' split...")
-    dataloaders = create_feature_dataloaders(
-        feature_dir=args.feature_dir,
+    dataloaders = create_cityscapes_dataloaders(
+        data_root=args.data_root,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
-        splits=[split]
+        target_size=(1024, 512)
     )
 
     test_loader = dataloaders[split]
