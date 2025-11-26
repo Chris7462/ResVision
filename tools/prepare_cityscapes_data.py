@@ -381,11 +381,12 @@ def main():
     print("Preparation complete!")
     print("=" * 80)
     print(f"\nNext steps:")
-    print(f"  1. Extract features: python common/tools/extract_features.py \\")
-    print(f"       --task segmentation \\")
+    print(f"  1. Train model: python segmentation/train_fcn.py \\")
     print(f"       --data-root {args.data_root}")
-    print(f"\n  Note: Images will be resized to 1024x512 during feature extraction")
-    print(f"  Features will be saved to: ./features/segmentation/")
+    print(f"\n  2. Evaluate: python segmentation/test_fcn.py \\")
+    print(f"       --checkpoint ./checkpoints/segmentation/FCN-ResNet101_*_best.pth \\")
+    print(f"       --data-root {args.data_root} \\")
+    print(f"       --visualize")
 
 
 if __name__ == '__main__':

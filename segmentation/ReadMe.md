@@ -53,9 +53,9 @@ python tools/prepare_cityscapes_data.py \
 **Output:**
 ```
 data/Cityscapes/splits/
-├── train.txt       # 2475 images (90% of original train)
+├── train.txt       # 2677 images (90% of original train)
 ├── val.txt         # 500 images (official val set)
-├── test.txt        # 275 images (10% of original train)
+├── test.txt        # 298 images (10% of original train)
 └── dataset_info.json  # Class info, weights, mappings
 ```
 
