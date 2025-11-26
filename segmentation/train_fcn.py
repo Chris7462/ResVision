@@ -17,7 +17,7 @@ import argparse
 
 from segmentation.datasets import create_cityscapes_dataloaders
 from segmentation.model import create_fcn_resnet101
-from segmentation.utils import batch_iou, batch_pixel_acc
+from segmentation.utils import mean_iou, global_pixel_accuracy
 
 
 # ================== Configuration ==================
@@ -74,8 +74,8 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
             preds = outputs.argmax(dim=1).cpu().numpy()
             targets_np = targets.cpu().numpy()
 
-            batch_iou_score = batch_iou(preds, targets_np, num_classes, ignore_index)
-            batch_pix_acc = batch_pixel_acc(preds, targets_np, ignore_index)
+            batch_iou_score = mean_iou(preds, targets_np, num_classes, ignore_index)
+            batch_pix_acc = global_pixel_accuracy(preds, targets_np, ignore_index)
 
             all_ious.append(batch_iou_score)
             all_pixel_accs.append(batch_pix_acc)
@@ -83,7 +83,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
         # Update progress bar
         pbar.set_postfix({
             'loss': f'{loss.item():.4f}',
-            'iou': f'{batch_iou_score:.4f}',
+            'mIoU': f'{batch_iou_score:.4f}',
             'acc': f'{batch_pix_acc:.4f}'
         })
 
@@ -119,8 +119,8 @@ def validate(model, val_loader, criterion, device, num_classes,
             targets_np = targets.cpu().numpy()
 
             # Calculate metrics
-            batch_iou_score = batch_iou(preds, targets_np, num_classes, ignore_index)
-            batch_pix_acc = batch_pixel_acc(preds, targets_np, ignore_index)
+            batch_iou_score = mean_iou(preds, targets_np, num_classes, ignore_index)
+            batch_pix_acc = global_pixel_accuracy(preds, targets_np, ignore_index)
 
             all_ious.append(batch_iou_score)
             all_pixel_accs.append(batch_pix_acc)

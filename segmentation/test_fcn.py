@@ -14,7 +14,7 @@ import argparse
 
 from segmentation.datasets import create_cityscapes_dataloaders
 from segmentation.model import create_fcn_resnet101
-from segmentation.utils import batch_iou, batch_pixel_acc
+from segmentation.utils import mean_iou, global_pixel_accuracy, class_pixel_accuracy
 
 
 # Output directories
@@ -34,15 +34,14 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
         ignore_index: Index to ignore in evaluation
 
     Returns:
-        mean_iou: Mean IoU across all samples
-        mean_pixel_acc: Mean pixel accuracy
+        miou: Mean IoU across all samples
+        pixel_acc: Global pixel accuracy
+        class_acc: Class pixel accuracy (mean)
         all_predictions: List of prediction arrays
         all_targets: List of target arrays
     """
     model.eval()
 
-    all_ious = []
-    all_pixel_accs = []
     all_predictions = []
     all_targets = []
 
@@ -60,27 +59,20 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
             preds = outputs.argmax(dim=1).cpu().numpy()
             targets_np = targets.cpu().numpy()
 
-            # Calculate metrics
-            batch_iou_score = batch_iou(preds, targets_np, num_classes, ignore_index)
-            batch_pix_acc = batch_pixel_acc(preds, targets_np, ignore_index)
-
-            all_ious.append(batch_iou_score)
-            all_pixel_accs.append(batch_pix_acc)
-
-            # Store predictions and targets for visualization
+            # Store predictions and targets for final evaluation
             all_predictions.extend(preds)
             all_targets.extend(targets_np)
 
-            # Update progress bar
-            pbar.set_postfix({
-                'iou': f'{batch_iou_score:.4f}',
-                'acc': f'{batch_pix_acc:.4f}'
-            })
+    # Convert to numpy arrays
+    all_predictions = np.array(all_predictions)
+    all_targets = np.array(all_targets)
 
-    mean_iou = np.mean(all_ious)
-    mean_pixel_acc = np.mean(all_pixel_accs)
+    # Calculate metrics on entire dataset
+    miou = mean_iou(all_predictions, all_targets, num_classes, ignore_index)
+    pixel_acc = global_pixel_accuracy(all_predictions, all_targets, ignore_index)
+    class_acc = class_pixel_accuracy(all_predictions, all_targets, num_classes, ignore_index)
 
-    return mean_iou, mean_pixel_acc, all_predictions, all_targets
+    return miou, pixel_acc, class_acc, all_predictions, all_targets
 
 
 def visualize_predictions(predictions, targets, color_map, num_samples=5, save_path=None):
@@ -238,22 +230,30 @@ def main():
     print(f"Evaluating on {split} split")
     print("="*80)
 
-    mean_iou, mean_pixel_acc, predictions, targets = evaluate(
+    miou, pixel_acc, class_acc, predictions, targets = evaluate(
         model, test_loader, device, num_classes, ignore_index
     )
 
     print("\n" + "="*80)
     print("Evaluation Results")
     print("="*80)
-    print(f"Mean IoU: {mean_iou:.4f}")
-    print(f"Pixel Accuracy: {mean_pixel_acc:.4f}")
+    print(f"Mean IoU (mIoU):              {miou:.4f}")
+    print(f"Global Pixel Accuracy:        {pixel_acc:.4f}")
+    print(f"Class Pixel Accuracy (Mean):  {class_acc:.4f}")
+
+    # Interpretation guidance
+    if pixel_acc > class_acc + 0.05:
+        print("\nNote: Global Pixel Accuracy >> Class Pixel Accuracy")
+        print("  This suggests the model performs well on frequent classes")
+        print("  but may struggle with rare classes.")
 
     # Save results
     results = {
         'checkpoint': args.checkpoint,
         'split': split,
-        'mean_iou': float(mean_iou),
-        'pixel_accuracy': float(mean_pixel_acc),
+        'mean_iou': float(miou),
+        'global_pixel_accuracy': float(pixel_acc),
+        'class_pixel_accuracy': float(class_acc),
         'num_samples': len(predictions)
     }
 
