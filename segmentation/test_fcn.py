@@ -74,30 +74,7 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
     pixel_acc = pixel_accuracy(all_predictions, all_targets, ignore_index)
     mean_acc = mean_pixel_accuracy(all_predictions, all_targets, num_classes, ignore_index)
     fwiou = frequency_weighted_iou(all_predictions, all_targets, num_classes, ignore_index)
-
-    # Calculate per-class IoU on entire dataset
-    # Need to compute across all images using accumulation
-    total_intersection = np.zeros(num_classes, dtype=np.int64)
-    total_union = np.zeros(num_classes, dtype=np.int64)
-
-    for pred, target in zip(all_predictions, all_targets):
-        valid_mask = (target != ignore_index)
-        for cls in range(num_classes):
-            pred_inds = (pred == cls) & valid_mask
-            target_inds = (target == cls) & valid_mask
-
-            intersection = pred_inds[target_inds].sum()
-            union = pred_inds.sum() + target_inds.sum() - intersection
-
-            total_intersection[cls] += intersection
-            total_union[cls] += union
-
-    per_class_iou = []
-    for cls in range(num_classes):
-        if total_union[cls] == 0:
-            per_class_iou.append(float('nan'))
-        else:
-            per_class_iou.append(float(total_intersection[cls]) / total_union[cls])
+    per_class_iou = iou_per_class(all_predictions, all_targets, num_classes, ignore_index)
 
     return miou, pixel_acc, mean_acc, fwiou, per_class_iou, all_predictions, all_targets
 

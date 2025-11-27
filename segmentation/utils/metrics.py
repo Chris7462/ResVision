@@ -296,13 +296,16 @@ def frequency_weighted_iou(preds, targets, n_class, ignore_index=255):
     return weighted_iou
 
 
-def iou_per_class(pred, target, n_class, ignore_index=255):
+def iou_per_class(preds, targets, n_class, ignore_index=255):
     """
-    Calculate Intersection over Union for each class (single image).
+    Calculate Intersection over Union for each class.
+
+    This function uses accumulation method across all images for consistency
+    with mean_iou(). It can handle both single images and batches.
 
     Args:
-        pred: Prediction mask (H, W) with class indices
-        target: Ground truth mask (H, W) with class indices
+        preds: Predictions (N, H, W) or single (H, W)
+        targets: Ground truth (N, H, W) or single (H, W)
         n_class: Number of classes
         ignore_index: Index to ignore in evaluation (default: 255)
 
@@ -310,29 +313,49 @@ def iou_per_class(pred, target, n_class, ignore_index=255):
         list: IoU for each class (nan if class not present in ground truth)
 
     Example:
+        >>> # Single image
         >>> pred = np.array([[0, 1], [1, 1]])
         >>> target = np.array([[0, 1], [1, 1]])
         >>> ious = iou_per_class(pred, target, n_class=2)
         >>> print(ious)  # [1.0, 1.0]
+
+        >>> # Batch of images
+        >>> preds = np.array([[[0, 1], [1, 1]], [[0, 0], [1, 1]]])
+        >>> targets = np.array([[[0, 1], [1, 1]], [[0, 0], [1, 1]]])
+        >>> ious = iou_per_class(preds, targets, n_class=2)
+        >>> print(ious)  # [1.0, 1.0]
     """
+    # Handle single image case
+    if preds.ndim == 2:
+        preds = preds[np.newaxis, ...]
+        targets = targets[np.newaxis, ...]
+
+    # Accumulate intersection and union across all images
+    total_intersection = np.zeros(n_class, dtype=np.int64)
+    total_union = np.zeros(n_class, dtype=np.int64)
+
+    for pred, target in zip(preds, targets):
+        valid_mask = (target != ignore_index)
+
+        for cls in range(n_class):
+            # Only consider valid pixels
+            pred_inds = (pred == cls) & valid_mask
+            target_inds = (target == cls) & valid_mask
+
+            intersection = pred_inds[target_inds].sum()
+            union = pred_inds.sum() + target_inds.sum() - intersection
+
+            total_intersection[cls] += intersection
+            total_union[cls] += union
+
+    # Compute IoU per class
     ious = []
-
-    # Create mask for valid pixels (not ignored)
-    valid_mask = (target != ignore_index)
-
     for cls in range(n_class):
-        # Only consider valid pixels
-        pred_inds = (pred == cls) & valid_mask
-        target_inds = (target == cls) & valid_mask
-
-        intersection = pred_inds[target_inds].sum()
-        union = pred_inds.sum() + target_inds.sum() - intersection
-
-        if union == 0:
+        if total_union[cls] == 0:
             # If there is no ground truth for this class, do not include in evaluation
             ious.append(float('nan'))
         else:
-            ious.append(float(intersection) / max(union, 1))
+            ious.append(float(total_intersection[cls]) / total_union[cls])
 
     return ious
 
@@ -380,6 +403,9 @@ if __name__ == '__main__':
     fwiou = frequency_weighted_iou(batch_preds, batch_targets, n_class, ignore_index)
     print(f"  Frequency weighted IoU: {fwiou:.4f}")
 
+    batch_ious = iou_per_class(batch_preds, batch_targets, n_class, ignore_index)
+    print(f"  IoU per class (batch): {[f'{x:.4f}' if not np.isnan(x) else 'nan' for x in batch_ious]}")
+
     # Test perfect predictions
     print("\n3. Perfect Predictions Test:")
     print("-" * 80)
@@ -388,10 +414,12 @@ if __name__ == '__main__':
     perfect_pix_acc = pixel_accuracy(perfect_preds, batch_targets, ignore_index)
     perfect_mean_acc = mean_pixel_accuracy(perfect_preds, batch_targets, n_class, ignore_index)
     perfect_fwiou = frequency_weighted_iou(perfect_preds, batch_targets, n_class, ignore_index)
+    perfect_ious = iou_per_class(perfect_preds, batch_targets, n_class, ignore_index)
     print(f"  Perfect mIoU: {perfect_miou:.4f} (should be 1.0)")
     print(f"  Perfect pixel accuracy: {perfect_pix_acc:.4f} (should be 1.0)")
     print(f"  Perfect mean pixel accuracy: {perfect_mean_acc:.4f} (should be 1.0)")
     print(f"  Perfect frequency weighted IoU: {perfect_fwiou:.4f} (should be 1.0)")
+    print(f"  Perfect IoU per class: {[f'{x:.4f}' if not np.isnan(x) else 'nan' for x in perfect_ious]}")
 
     # Test batch-size independence
     print("\n4. Batch-Size Independence Test:")
@@ -405,12 +433,16 @@ if __name__ == '__main__':
     miou_batch8 = mean_iou(all_preds, all_targets, n_class, ignore_index)
     pix_acc_batch8 = pixel_accuracy(all_preds, all_targets, ignore_index)
     fwiou_batch8 = frequency_weighted_iou(all_preds, all_targets, n_class, ignore_index)
+    ious_batch8 = iou_per_class(all_preds, all_targets, n_class, ignore_index)
 
     # Batch size 4 (split into two batches)
     miou_batch4_a = mean_iou(all_preds[:4], all_targets[:4], n_class, ignore_index)
     miou_batch4_b = mean_iou(all_preds[4:], all_targets[4:], n_class, ignore_index)
+    ious_batch4_a = iou_per_class(all_preds[:4], all_targets[:4], n_class, ignore_index)
+    ious_batch4_b = iou_per_class(all_preds[4:], all_targets[4:], n_class, ignore_index)
 
     print(f"  Batch size 8 - mIoU: {miou_batch8:.4f}, Pixel Acc: {pix_acc_batch8:.4f}, f.w. IoU: {fwiou_batch8:.4f}")
+    print(f"  Batch size 8 - IoU per class: {[f'{x:.4f}' if not np.isnan(x) else 'nan' for x in ious_batch8]}")
     print(f"  Batch size 4a - mIoU: {miou_batch4_a:.4f}")
     print(f"  Batch size 4b - mIoU: {miou_batch4_b:.4f}")
     print(f"  Note: Individual batch results will differ, but full dataset gives consistent results")
@@ -432,9 +464,11 @@ if __name__ == '__main__':
     single_miou = mean_iou(single_pred, single_target, n_class, ignore_index)
     single_pix_acc = pixel_accuracy(single_pred, single_target, ignore_index)
     single_fwiou = frequency_weighted_iou(single_pred, single_target, n_class, ignore_index)
+    single_ious = iou_per_class(single_pred, single_target, n_class, ignore_index)
     print(f"  Single image mIoU: {single_miou:.4f}")
     print(f"  Single image pixel accuracy: {single_pix_acc:.4f}")
     print(f"  Single image f.w. IoU: {single_fwiou:.4f}")
+    print(f"  Single image IoU per class: {[f'{x:.4f}' if not np.isnan(x) else 'nan' for x in single_ious]}")
 
     print("\n" + "="*80)
     print("All metrics tests passed!")

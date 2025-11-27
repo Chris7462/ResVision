@@ -151,43 +151,65 @@ def plot_training_history(history, save_dir, experiment_name):
     matplotlib.use('Agg')
     plt.style.use('ggplot')
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
 
     num_epochs = len(history['train_loss'])
     epochs_range = np.arange(1, num_epochs + 1)
 
     # Plot 1: Loss
-    axes[0].plot(epochs_range, history['train_loss'], label='Train Loss',
-                 marker='o', markersize=3, linewidth=2)
-    axes[0].plot(epochs_range, history['val_loss'], label='Val Loss',
-                 marker='s', markersize=3, linewidth=2)
-    axes[0].set_title('Training and Validation Loss', fontsize=14, fontweight='bold')
-    axes[0].set_xlabel('Epoch #', fontsize=12)
-    axes[0].set_ylabel('Loss', fontsize=12)
-    axes[0].legend(fontsize=11)
-    axes[0].grid(True, alpha=0.3)
+    axes[0, 0].plot(epochs_range, history['train_loss'], label='Train Loss',
+                    marker='o', markersize=3, linewidth=2)
+    axes[0, 0].plot(epochs_range, history['val_loss'], label='Val Loss',
+                    marker='s', markersize=3, linewidth=2)
+    axes[0, 0].set_title('Training and Validation Loss', fontsize=14, fontweight='bold')
+    axes[0, 0].set_xlabel('Epoch #', fontsize=12)
+    axes[0, 0].set_ylabel('Loss', fontsize=12)
+    axes[0, 0].legend(fontsize=11)
+    axes[0, 0].grid(True, alpha=0.3)
 
-    # Plot 2: Metrics (mIoU and Pixel Accuracy)
-    axes[1].plot(epochs_range, history['train_iou'], label='Train mIoU',
-                 marker='o', markersize=3, linewidth=2)
-    axes[1].plot(epochs_range, history['train_pixel_acc'], label='Train Pixel Acc',
-                 marker='o', markersize=3, linewidth=2, linestyle='--')
-    axes[1].plot(epochs_range, history['val_iou'], label='Val mIoU',
-                 marker='s', markersize=3, linewidth=2)
-    axes[1].plot(epochs_range, history['val_pixel_acc'], label='Val Pixel Acc',
-                 marker='s', markersize=3, linewidth=2, linestyle='--')
-    axes[1].set_title('Training and Validation Metrics', fontsize=14, fontweight='bold')
-    axes[1].set_xlabel('Epoch #', fontsize=12)
-    axes[1].set_ylabel('Score', fontsize=12)
-    axes[1].legend(fontsize=11)
-    axes[1].grid(True, alpha=0.3)
+    # Plot 2: Pixel Accuracy
+    axes[0, 1].plot(epochs_range, history['train_pixel_acc'], label='Train Pixel Acc',
+                    marker='o', markersize=3, linewidth=2)
+    axes[0, 1].plot(epochs_range, history['val_pixel_acc'], label='Val Pixel Acc',
+                    marker='s', markersize=3, linewidth=2)
+    axes[0, 1].set_title('Pixel Accuracy', fontsize=14, fontweight='bold')
+    axes[0, 1].set_xlabel('Epoch #', fontsize=12)
+    axes[0, 1].set_ylabel('Accuracy', fontsize=12)
+    axes[0, 1].legend(fontsize=11)
+    axes[0, 1].grid(True, alpha=0.3)
+
+    # Plot 3: Mean Accuracy
+    axes[1, 0].plot(epochs_range, history['train_mean_acc'], label='Train Mean Acc',
+                    marker='o', markersize=3, linewidth=2)
+    axes[1, 0].plot(epochs_range, history['val_mean_acc'], label='Val Mean Acc',
+                    marker='s', markersize=3, linewidth=2)
+    axes[1, 0].set_title('Mean Accuracy (Per-Class Average)', fontsize=14, fontweight='bold')
+    axes[1, 0].set_xlabel('Epoch #', fontsize=12)
+    axes[1, 0].set_ylabel('Accuracy', fontsize=12)
+    axes[1, 0].legend(fontsize=11)
+    axes[1, 0].grid(True, alpha=0.3)
+
+    # Plot 4: IoU Metrics (mIoU and f.w. IoU)
+    axes[1, 1].plot(epochs_range, history['train_iou'], label='Train mIoU',
+                    marker='o', markersize=3, linewidth=2)
+    axes[1, 1].plot(epochs_range, history['val_iou'], label='Val mIoU',
+                    marker='s', markersize=3, linewidth=2)
+    axes[1, 1].plot(epochs_range, history['train_fwiou'], label='Train f.w. IoU',
+                    marker='o', markersize=3, linewidth=2, linestyle='--')
+    axes[1, 1].plot(epochs_range, history['val_fwiou'], label='Val f.w. IoU',
+                    marker='s', markersize=3, linewidth=2, linestyle='--')
+    axes[1, 1].set_title('IoU Metrics', fontsize=14, fontweight='bold')
+    axes[1, 1].set_xlabel('Epoch #', fontsize=12)
+    axes[1, 1].set_ylabel('IoU Score', fontsize=12)
+    axes[1, 1].legend(fontsize=11)
+    axes[1, 1].grid(True, alpha=0.3)
 
     plt.tight_layout()
 
     # Save figure
     save_path = os.path.join(save_dir, f'{experiment_name}_history.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Training history plot saved to: {save_path}")
+    print(f"\nTraining history plot saved to: {save_path}")
     plt.close()
 
 
