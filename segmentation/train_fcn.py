@@ -17,7 +17,7 @@ import argparse
 
 from segmentation.datasets import create_cityscapes_dataloaders
 from segmentation.model import create_fcn_resnet101
-from segmentation.utils import mean_iou, global_pixel_accuracy
+from segmentation.utils import pixel_accuracy, mean_pixel_accuracy, mean_iou, frequency_weighted_iou
 
 
 # ================== Configuration ==================
@@ -50,8 +50,8 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
     model.train()  # Sets decoder to train mode, backbone stays in eval mode
 
     running_loss = 0.0
-    all_ious = []
-    all_pixel_accs = []
+    all_preds = []
+    all_targets = []
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{total_epochs} [Train]")
     for batch in pbar:
@@ -69,16 +69,13 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
 
         running_loss += loss.item()
 
-        # Calculate training metrics
+        # Collect predictions and targets
         with torch.no_grad():
             preds = outputs.argmax(dim=1).cpu().numpy()
             targets_np = targets.cpu().numpy()
 
-            batch_iou_score = mean_iou(preds, targets_np, num_classes, ignore_index)
-            batch_pix_acc = global_pixel_accuracy(preds, targets_np, ignore_index)
-
-            all_ious.append(batch_iou_score)
-            all_pixel_accs.append(batch_pix_acc)
+            all_preds.append(preds)
+            all_targets.append(targets_np)
 
         # Update progress bar
         pbar.set_postfix({
@@ -87,11 +84,17 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device,
             #'acc': f'{batch_pix_acc:.4f}'
         })
 
-    avg_loss = running_loss / len(train_loader)
-    avg_iou = np.mean(all_ious)
-    avg_pixel_acc = np.mean(all_pixel_accs)
+    # Compute metrics on all collected predictions
+    all_preds = np.concatenate(all_preds, axis=0)
+    all_targets = np.concatenate(all_targets, axis=0)
 
-    return avg_loss, avg_iou, avg_pixel_acc
+    avg_loss = running_loss / len(train_loader)
+    avg_iou = mean_iou(all_preds, all_targets, num_classes, ignore_index)
+    avg_pixel_acc = pixel_accuracy(all_preds, all_targets, ignore_index)
+    avg_mean_acc = mean_pixel_accuracy(all_preds, all_targets, num_classes, ignore_index)
+    avg_fwiou = frequency_weighted_iou(all_preds, all_targets, num_classes, ignore_index)
+
+    return avg_loss, avg_iou, avg_pixel_acc, avg_mean_acc, avg_fwiou
 
 
 def validate(model, val_loader, criterion, device, num_classes,
@@ -100,8 +103,8 @@ def validate(model, val_loader, criterion, device, num_classes,
     model.eval()  # Sets decoder to eval mode, backbone already in eval mode
 
     running_loss = 0.0
-    all_ious = []
-    all_pixel_accs = []
+    all_preds = []
+    all_targets = []
 
     with torch.no_grad():
         pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{total_epochs} [Val]  ")
@@ -114,22 +117,24 @@ def validate(model, val_loader, criterion, device, num_classes,
             loss = criterion(outputs, targets)
             running_loss += loss.item()
 
-            # Get predictions
+            # Collect predictions and targets
             preds = outputs.argmax(dim=1).cpu().numpy()
             targets_np = targets.cpu().numpy()
 
-            # Calculate metrics
-            batch_iou_score = mean_iou(preds, targets_np, num_classes, ignore_index)
-            batch_pix_acc = global_pixel_accuracy(preds, targets_np, ignore_index)
+            all_preds.append(preds)
+            all_targets.append(targets_np)
 
-            all_ious.append(batch_iou_score)
-            all_pixel_accs.append(batch_pix_acc)
+    # Compute metrics on all collected predictions
+    all_preds = np.concatenate(all_preds, axis=0)
+    all_targets = np.concatenate(all_targets, axis=0)
 
     avg_loss = running_loss / len(val_loader)
-    avg_iou = np.mean(all_ious)
-    avg_pixel_acc = np.mean(all_pixel_accs)
+    avg_iou = mean_iou(all_preds, all_targets, num_classes, ignore_index)
+    avg_pixel_acc = pixel_accuracy(all_preds, all_targets, ignore_index)
+    avg_mean_acc = mean_pixel_accuracy(all_preds, all_targets, num_classes, ignore_index)
+    avg_fwiou = frequency_weighted_iou(all_preds, all_targets, num_classes, ignore_index)
 
-    return avg_loss, avg_iou, avg_pixel_acc
+    return avg_loss, avg_iou, avg_pixel_acc, avg_mean_acc, avg_fwiou
 
 
 def plot_training_history(history, save_dir, experiment_name):
@@ -325,9 +330,13 @@ def main():
         'train_loss': [],
         'train_iou': [],
         'train_pixel_acc': [],
+        'train_mean_acc': [],
+        'train_fwiou': [],
         'val_loss': [],
         'val_iou': [],
-        'val_pixel_acc': []
+        'val_pixel_acc': [],
+        'val_mean_acc': [],
+        'val_fwiou': []
     }
 
     # Load checkpoint if resuming
@@ -349,13 +358,13 @@ def main():
     # Training loop
     for epoch in range(start_epoch, epochs):
         # Train
-        train_loss, train_iou, train_pixel_acc = train_one_epoch(
+        train_loss, train_iou, train_pixel_acc, train_mean_acc, train_fwiou = train_one_epoch(
             model, train_loader, criterion, optimizer, device,
             num_classes, ignore_index, epoch, epochs
         )
 
         # Validate
-        val_loss, val_iou, val_pixel_acc = validate(
+        val_loss, val_iou, val_pixel_acc, val_mean_acc, val_fwiou = validate(
             model, val_loader, criterion, device, num_classes,
             ignore_index, epoch, epochs
         )
@@ -368,15 +377,19 @@ def main():
         history['train_loss'].append(train_loss)
         history['train_iou'].append(train_iou)
         history['train_pixel_acc'].append(train_pixel_acc)
+        history['train_mean_acc'].append(train_mean_acc)
+        history['train_fwiou'].append(train_fwiou)
         history['val_loss'].append(val_loss)
         history['val_iou'].append(val_iou)
         history['val_pixel_acc'].append(val_pixel_acc)
+        history['val_mean_acc'].append(val_mean_acc)
+        history['val_fwiou'].append(val_fwiou)
 
         # Print epoch summary
         print(f"\nEpoch {epoch+1}/{epochs} Summary:")
         print(f"  LR: {current_lr:.6f}")
-        print(f"  Train loss: {train_loss:.4f}, mIoU: {train_iou:.4f}, Pixel Acc: {train_pixel_acc:.4f}")
-        print(f"  Val loss: {val_loss:.4f}, mIoU: {val_iou:.4f}, Pixel Acc: {val_pixel_acc:.4f}")
+        print(f"  Train - loss: {train_loss:.4f}, Pixel Acc: {train_pixel_acc:.4f}, Mean Acc: {train_mean_acc:.4f}, mIoU: {train_iou:.4f}, f.w. IoU: {train_fwiou:.4f}")
+        print(f"  Val   - loss: {val_loss:.4f}, Pixel Acc: {val_pixel_acc:.4f}, Mean Acc: {val_mean_acc:.4f}, mIoU: {val_iou:.4f}, f.w. IoU: {val_fwiou:.4f}")
 
         # Check if this is the best model
         is_best = val_iou > best_iou

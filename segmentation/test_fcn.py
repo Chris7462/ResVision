@@ -14,7 +14,7 @@ import argparse
 
 from segmentation.datasets import create_cityscapes_dataloaders
 from segmentation.model import create_fcn_resnet101
-from segmentation.utils import mean_iou, global_pixel_accuracy, class_pixel_accuracy
+from segmentation.utils import pixel_accuracy, mean_pixel_accuracy, mean_iou, frequency_weighted_iou, iou_per_class
 
 
 # Output directories
@@ -35,8 +35,10 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
 
     Returns:
         miou: Mean IoU across all samples
-        pixel_acc: Global pixel accuracy
-        class_acc: Class pixel accuracy (mean)
+        pixel_acc: Pixel accuracy
+        mean_acc: Mean pixel accuracy
+        fwiou: Frequency weighted IoU
+        per_class_iou: IoU for each class
         all_predictions: List of prediction arrays
         all_targets: List of target arrays
     """
@@ -69,10 +71,35 @@ def evaluate(model, dataloader, device, num_classes, ignore_index):
 
     # Calculate metrics on entire dataset
     miou = mean_iou(all_predictions, all_targets, num_classes, ignore_index)
-    pixel_acc = global_pixel_accuracy(all_predictions, all_targets, ignore_index)
-    class_acc = class_pixel_accuracy(all_predictions, all_targets, num_classes, ignore_index)
+    pixel_acc = pixel_accuracy(all_predictions, all_targets, ignore_index)
+    mean_acc = mean_pixel_accuracy(all_predictions, all_targets, num_classes, ignore_index)
+    fwiou = frequency_weighted_iou(all_predictions, all_targets, num_classes, ignore_index)
 
-    return miou, pixel_acc, class_acc, all_predictions, all_targets
+    # Calculate per-class IoU on entire dataset
+    # Need to compute across all images using accumulation
+    total_intersection = np.zeros(num_classes, dtype=np.int64)
+    total_union = np.zeros(num_classes, dtype=np.int64)
+
+    for pred, target in zip(all_predictions, all_targets):
+        valid_mask = (target != ignore_index)
+        for cls in range(num_classes):
+            pred_inds = (pred == cls) & valid_mask
+            target_inds = (target == cls) & valid_mask
+
+            intersection = pred_inds[target_inds].sum()
+            union = pred_inds.sum() + target_inds.sum() - intersection
+
+            total_intersection[cls] += intersection
+            total_union[cls] += union
+
+    per_class_iou = []
+    for cls in range(num_classes):
+        if total_union[cls] == 0:
+            per_class_iou.append(float('nan'))
+        else:
+            per_class_iou.append(float(total_intersection[cls]) / total_union[cls])
+
+    return miou, pixel_acc, mean_acc, fwiou, per_class_iou, all_predictions, all_targets
 
 
 def visualize_predictions(predictions, targets, color_map, num_samples=5, save_path=None):
@@ -186,7 +213,7 @@ def main():
 
     # Always evaluate on test set
     split = 'test'
-    
+
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -230,7 +257,7 @@ def main():
     print(f"Evaluating on {split} split")
     print("="*80)
 
-    miou, pixel_acc, class_acc, predictions, targets = evaluate(
+    miou, pixel_acc, mean_acc, fwiou, per_class_iou, predictions, targets = evaluate(
         model, test_loader, device, num_classes, ignore_index
     )
 
@@ -238,12 +265,21 @@ def main():
     print("Evaluation Results")
     print("="*80)
     print(f"Mean IoU (mIoU):              {miou:.4f}")
-    print(f"Global Pixel Accuracy:        {pixel_acc:.4f}")
-    print(f"Class Pixel Accuracy (Mean):  {class_acc:.4f}")
+    print(f"Pixel Accuracy:               {pixel_acc:.4f}")
+    print(f"Mean Pixel Accuracy:          {mean_acc:.4f}")
+    print(f"Frequency Weighted IoU:       {fwiou:.4f}")
+
+    # Print per-class IoU
+    print(f"\nPer-Class IoU:")
+    for cls_id, (cls_name, cls_iou) in enumerate(zip(class_names, per_class_iou)):
+        if np.isnan(cls_iou):
+            print(f"  {cls_id:2d}. {cls_name:20s}: N/A (not in dataset)")
+        else:
+            print(f"  {cls_id:2d}. {cls_name:20s}: {cls_iou:.4f}")
 
     # Interpretation guidance
-    if pixel_acc > class_acc + 0.05:
-        print("\nNote: Global Pixel Accuracy >> Class Pixel Accuracy")
+    if pixel_acc > mean_acc + 0.05:
+        print("\nNote: Pixel Accuracy >> Mean Pixel Accuracy")
         print("  This suggests the model performs well on frequent classes")
         print("  but may struggle with rare classes.")
 
@@ -252,8 +288,11 @@ def main():
         'checkpoint': args.checkpoint,
         'split': split,
         'mean_iou': float(miou),
-        'global_pixel_accuracy': float(pixel_acc),
-        'class_pixel_accuracy': float(class_acc),
+        'pixel_accuracy': float(pixel_acc),
+        'mean_pixel_accuracy': float(mean_acc),
+        'frequency_weighted_iou': float(fwiou),
+        'per_class_iou': {name: float(iou) if not np.isnan(iou) else None 
+                          for name, iou in zip(class_names, per_class_iou)},
         'num_samples': len(predictions)
     }
 

@@ -7,14 +7,14 @@ from .metrics import (
     iou_per_class,
     mean_iou,
     pixel_accuracy,
-    global_pixel_accuracy,
-    class_pixel_accuracy
+    mean_pixel_accuracy,
+    frequency_weighted_iou
 )
 
 __all__ = [
     'iou_per_class',
     'mean_iou',
     'pixel_accuracy',
-    'global_pixel_accuracy',
-    'class_pixel_accuracy',
+    'mean_pixel_accuracy',
+    'frequency_weighted_iou',
 ]
