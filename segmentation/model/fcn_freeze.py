@@ -1,7 +1,6 @@
 """
 FCN Model for Semantic Segmentation
-Combines ResNet101 backbone with FCN decoder
-BOTH backbone and decoder are trainable (end-to-end training)
+Combines frozen ResNet101 backbone with trainable FCN decoder
 """
 
 import torch
@@ -14,11 +13,12 @@ class FCN(nn.Module):
     """
     Fully Convolutional Network for semantic segmentation.
 
-    Combines a ResNet101 backbone with an FCN decoder.
-    Both backbone and decoder are trainable for end-to-end learning.
+    Combines a frozen ResNet101 backbone with a trainable FCN decoder.
+    The backbone extracts multi-scale features (c2, c3, c4, c5) which are
+    then passed to the decoder for segmentation.
 
     Args:
-        backbone: ResNet101Backbone instance (trainable)
+        backbone: ResNet101Backbone instance (should be frozen)
         decoder: FCNDecoder instance (trainable)
     """
 
@@ -37,8 +37,9 @@ class FCN(nn.Module):
         Returns:
             Segmentation logits (B, num_classes, H, W)
         """
-        # Extract features through backbone (WITH gradient for end-to-end training)
-        features = self.backbone(x)
+        # Extract features through frozen backbone (no gradient)
+        with torch.no_grad():
+            features = self.backbone(x)
 
         # Decode to segmentation map (with gradient)
         output = self.decoder(
@@ -50,6 +51,17 @@ class FCN(nn.Module):
 
         return output
 
+    def train(self, mode=True):
+        """
+        Set training mode.
+        Backbone always stays in eval mode (frozen).
+        Only decoder switches between train/eval.
+        """
+        super().train(mode)
+        # Keep backbone in eval mode always
+        self.backbone.eval()
+        return self
+
     def __repr__(self):
         """String representation showing model configuration."""
         total_params = sum(p.numel() for p in self.parameters())
@@ -57,20 +69,22 @@ class FCN(nn.Module):
 
         return (
             f"FCN(\n"
-            f"  Backbone: ResNet101 (trainable, end-to-end)\n"
+            f"  Backbone: ResNet101 (frozen)\n"
             f"  Decoder: FCNDecoder (trainable)\n"
             f"  Total parameters: {total_params:,}\n"
             f"  Trainable parameters: {trainable_params:,}\n"
+            f"  Frozen parameters: {total_params - trainable_params:,}\n"
             f")"
         )
 
 
 def create_fcn_resnet101(num_classes, pretrained=True):
     """
-    Factory function to create FCN with trainable ResNet101 backbone.
+    Factory function to create FCN with frozen ResNet101 backbone.
 
-    This creates a fully trainable model for end-to-end learning.
-    The backbone is initialized with ImageNet pretrained weights but will be fine-tuned.
+    This is the recommended way to instantiate the model. It ensures:
+    - Backbone is pretrained on ImageNet and frozen
+    - Decoder is randomly initialized and trainable
 
     Args:
         num_classes: Number of output segmentation classes
@@ -84,8 +98,8 @@ def create_fcn_resnet101(num_classes, pretrained=True):
         >>> model = model.to(device)
         >>> outputs = model(images)
     """
-    # Create ResNet101 backbone (pretrained on ImageNet, but NOT frozen)
-    backbone = create_resnet101_backbone(pretrained=pretrained, freeze=False)
+    # Create frozen ResNet101 backbone (pretrained on ImageNet)
+    backbone = create_resnet101_backbone(pretrained=pretrained, freeze=True)
 
     # Create trainable FCN decoder
     decoder = FCNDecoder(num_classes=num_classes)
@@ -129,18 +143,18 @@ if __name__ == '__main__':
     outputs_train = model(dummy_images)
     print(f"\nTrain mode output shape: {outputs_train.shape}")
 
-    # Verify both backbone and decoder are in train mode
-    assert model.backbone.training, "Backbone should be in train mode!"
+    # Verify backbone is still in eval mode
+    assert not model.backbone.training, "Backbone should always be in eval mode!"
     assert model.decoder.training, "Decoder should be in train mode!"
 
-    # Verify all parameters require grad
+    # Verify requires_grad settings
     print("\nVerifying parameter settings:")
     backbone_trainable = sum(p.numel() for p in model.backbone.parameters() if p.requires_grad)
     decoder_trainable = sum(p.numel() for p in model.decoder.parameters() if p.requires_grad)
-    print(f"  Backbone trainable params: {backbone_trainable:,} (should be > 0)")
+    print(f"  Backbone trainable params: {backbone_trainable:,} (should be 0)")
     print(f"  Decoder trainable params: {decoder_trainable:,} (should be > 0)")
     
-    assert backbone_trainable > 0, "Backbone should have trainable parameters!"
+    assert backbone_trainable == 0, "Backbone should have 0 trainable parameters!"
     assert decoder_trainable > 0, "Decoder should have trainable parameters!"
     
     print("\nFCN Model test passed!")

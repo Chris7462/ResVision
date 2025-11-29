@@ -22,9 +22,9 @@ from segmentation.utils import pixel_accuracy, mean_pixel_accuracy, mean_iou, fr
 
 # ================== Configuration ==================
 # Training settings (following original FCN paper)
-BATCH_SIZE = 8  # Adjust if OOM occurs with backbone in memory
+BATCH_SIZE = 16  # Adjust if OOM occurs with backbone in memory
 EPOCHS = 200
-LR = 1e-2
+LR = 1e-3
 MOMENTUM = 0.9
 WEIGHT_DECAY = 5e-4
 
@@ -233,18 +233,9 @@ def load_checkpoint(checkpoint_path, model, optimizer, scheduler, device):
     print(f"\n[INFO] Loading checkpoint from {checkpoint_path}...")
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-    # Load full model state (backbone + decoder)
-    if 'model_state_dict' in checkpoint:
-        # New format: full model state
-        model.load_state_dict(checkpoint['model_state_dict'])
-        print('[INFO] Full model state loaded (backbone + decoder)')
-    elif 'decoder_state_dict' in checkpoint:
-        # Old format: decoder only (for backward compatibility)
-        model.decoder.load_state_dict(checkpoint['decoder_state_dict'])
-        print('[INFO] Decoder state loaded (old checkpoint format)')
-        print('[WARN] Backbone will use pretrained ImageNet weights')
-    else:
-        raise KeyError("Checkpoint must contain 'model_state_dict' or 'decoder_state_dict'")
+    # Load only decoder weights (backbone is always from pretrained)
+    model.decoder.load_state_dict(checkpoint['decoder_state_dict'])
+    print('[INFO] Decoder state loaded')
 
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     print('[INFO] Optimizer state loaded')
@@ -333,7 +324,7 @@ def main():
         criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     # Only optimize decoder parameters (backbone is frozen)
-    optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
+    optimizer = optim.SGD(model.decoder.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
 
     # Use ReduceLROnPlateau scheduler
     scheduler = lr_scheduler.ReduceLROnPlateau(
@@ -344,11 +335,10 @@ def main():
         min_lr=LR_MIN            # Minimum LR
     )
 
-    print(f"\nOptimizer: SGD (end-to-end training - backbone + decoder)")
+    print(f"\nOptimizer: SGD (decoder only)")
     print(f"  Learning rate: {LR}")
     print(f"  Momentum: {MOMENTUM}")
     print(f"  Weight decay: {WEIGHT_DECAY}")
-    print(f"  Training: ALL parameters (backbone + decoder)")
     print(f"  LR Scheduler: ReduceLROnPlateau")
     print(f"    Mode: max (based on validation mIoU)")
     print(f"    Patience: {LR_PATIENCE} epochs")
@@ -431,10 +421,10 @@ def main():
         # Check if periodic checkpoint (every 10 epochs)
         is_periodic = (epoch + 1) % 10 == 0
 
-        # Prepare checkpoint (save full model - backbone + decoder)
+        # Prepare checkpoint (save decoder only, not backbone)
         checkpoint = {
             'epoch': epoch + 1,  # Next epoch to resume from
-            'model_state_dict': model.state_dict(),
+            'decoder_state_dict': model.decoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
             'best_iou': best_iou,

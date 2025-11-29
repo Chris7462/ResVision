@@ -150,8 +150,18 @@ def load_model(checkpoint_path, num_classes, device):
     # Create model (backbone from pretrained, decoder random init)
     model = create_fcn_resnet101(num_classes=num_classes)
 
-    # Load decoder weights from checkpoint
-    model.decoder.load_state_dict(checkpoint['decoder_state_dict'])
+    # Load full model state (backbone + decoder)
+    if 'model_state_dict' in checkpoint:
+        # New format: full model state
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print('[INFO] Full model state loaded (backbone + decoder)')
+    elif 'decoder_state_dict' in checkpoint:
+        # Old format: decoder only (for backward compatibility)
+        model.decoder.load_state_dict(checkpoint['decoder_state_dict'])
+        print('[INFO] Decoder state loaded (old checkpoint format)')
+        print('[WARN] Backbone will use pretrained ImageNet weights')
+    else:
+        raise KeyError("Checkpoint must contain 'model_state_dict' or 'decoder_state_dict'")
 
     model = model.to(device)
     model.eval()
